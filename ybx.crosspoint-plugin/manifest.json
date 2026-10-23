@@ -1,9 +1,9 @@
 {
   "name": "ybx",
   "title": "YBX",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Каталог книг YBX: Яндекс Книги сейчас; Литрес и WB — по мере подключения коннекторов. События чтения для аналитики YBX.",
-  "mount": "catalog",
+  "mount": "settings",
   "author": "YBX",
   "icon": "icon.png",
   "compatibility": {
@@ -16,6 +16,7 @@
     "manifest.json",
     "device.json",
     "plugin.json",
+    "plugin.js",
     "README.md",
     "icon.png"
   ]

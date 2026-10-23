@@ -1,0 +1,24 @@
+{
+  "id": "ybx",
+  "name": "ybx",
+  "title": "Яндекс Книги",
+  "version": "1.0.0",
+  "description": "Книги и полки Яндекс Книг; события чтения для YBX",
+  "author": "YBX",
+  "homepage": "https://ybx.app",
+  "capabilities": [
+    "catalog.lists",
+    "catalog.item_details"
+  ],
+  "compatibility": {
+    "firmware_family": "crosspoint",
+    "plugin_api_min": 1
+  },
+  "files": [
+    "manifest.json",
+    "device.json",
+    "plugin.json",
+    "README.md",
+    "icon.png"
+  ]
+}

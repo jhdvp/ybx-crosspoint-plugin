@@ -1,0 +1,144 @@
+{
+  "title": "Яндекс Книги",
+  "description": "Книги и полки Яндекс Книг; события чтения для YBX",
+  "token": {
+    "file": "token.json",
+    "path": "access_token"
+  },
+  "browse": {
+    "format": "json",
+    "url": "https://my.ybx.app/api/v1/crosspoint/catalog?shelf=reading&page={page}&limit={limit}",
+    "method": "GET",
+    "headers": {
+      "Authorization": "Bearer {token}"
+    },
+    "page_size": 10,
+    "items": "items",
+    "fields": {
+      "title": "title",
+      "author": "author",
+      "id": "id",
+      "url": "download_url",
+      "description": "description",
+      "detail_author": "author"
+    },
+    "search": {
+      "url": "https://my.ybx.app/api/v1/crosspoint/catalog/search?q={query}&page={page}&limit={limit}"
+    },
+    "lists": [
+      {
+        "title": "Читаю",
+        "url": "https://my.ybx.app/api/v1/crosspoint/catalog?shelf=reading&page={page}&limit={limit}"
+      },
+      {
+        "title": "Хочу прочитать",
+        "url": "https://my.ybx.app/api/v1/crosspoint/catalog?shelf=to_read&page={page}&limit={limit}"
+      },
+      {
+        "title": "Прочитано",
+        "url": "https://my.ybx.app/api/v1/crosspoint/catalog?shelf=done&page={page}&limit={limit}"
+      },
+      {
+        "title": "Все книги",
+        "url": "https://my.ybx.app/api/v1/crosspoint/catalog?shelf=all&page={page}&limit={limit}"
+      }
+    ]
+  },
+  "download": {
+    "url": "https://my.ybx.app/api/v1/crosspoint/books/{id}/download",
+    "method": "GET",
+    "headers": {
+      "Authorization": "Bearer {token}"
+    },
+    "dest_dir": "/books/ybx",
+    "filename": "{title}.epub",
+    "sidecar": {
+      "path": "{dest}.meta.json",
+      "body": "{\"book_id\":\"{id}\",\"provider\":\"yandex\"}"
+    }
+  },
+  "auth": {
+    "type": "device_code",
+    "request": {
+      "url": "https://my.ybx.app/api/v1/crosspoint/auth/device",
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": "{\"client_id\":\"crosspoint\"}"
+    },
+    "poll": {
+      "url": "https://my.ybx.app/api/v1/crosspoint/auth/token",
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": "{\"grant_type\":\"urn:ietf:params:oauth:grant-type:device_code\",\"device_code\":\"{device_code}\"}"
+    },
+    "code_path": "user_code",
+    "verify_url_path": "verification_uri_complete",
+    "device_code_path": "device_code",
+    "interval_path": "interval",
+    "expires_path": "expires_in",
+    "token_path": "access_token",
+    "error_path": "error"
+  },
+  "events": {
+    "reader.open": {
+      "request": {
+        "method": "POST",
+        "url": "https://my.ybx.app/api/v1/crosspoint/events",
+        "headers": {
+          "Authorization": "Bearer {token}",
+          "Content-Type": "application/json"
+        },
+        "body": "{\"event\":\"reader.open\",\"event_id\":\"{event.id}\",\"ts\":{event.ts},\"book_id\":\"{meta.book_id}\"}"
+      }
+    },
+    "reader.exit": {
+      "request": {
+        "method": "POST",
+        "url": "https://my.ybx.app/api/v1/crosspoint/events",
+        "headers": {
+          "Authorization": "Bearer {token}",
+          "Content-Type": "application/json"
+        },
+        "body": "{\"event\":\"reader.exit\",\"event_id\":\"{event.id}\",\"ts\":{event.ts},\"book_id\":\"{meta.book_id}\",\"percent\":{event.percent}}"
+      }
+    },
+    "reader.session": {
+      "request": {
+        "method": "POST",
+        "url": "https://my.ybx.app/api/v1/crosspoint/events",
+        "headers": {
+          "Authorization": "Bearer {token}",
+          "Content-Type": "application/json"
+        },
+        "body": "{\"event\":\"reader.session\",\"event_id\":\"{event.id}\",\"ts\":{event.ts},\"book_id\":\"{meta.book_id}\",\"doc\":\"{event.document}\",\"start\":{event.start_time},\"duration\":{event.duration_seconds},\"progress_bp\":{event.end_progress_bp}}"
+      },
+      "connect": true
+    },
+    "book.downloaded": {
+      "request": {
+        "method": "POST",
+        "url": "https://my.ybx.app/api/v1/crosspoint/events",
+        "headers": {
+          "Authorization": "Bearer {token}",
+          "Content-Type": "application/json"
+        },
+        "body": "{\"event\":\"book.downloaded\",\"event_id\":\"{event.id}\",\"ts\":{event.ts}}"
+      }
+    },
+    "sleep.enter": {
+      "request": {
+        "method": "POST",
+        "url": "https://my.ybx.app/api/v1/crosspoint/events",
+        "headers": {
+          "Authorization": "Bearer {token}",
+          "Content-Type": "application/json"
+        },
+        "body": "{\"event\":\"sleep.enter\",\"event_id\":\"{event.id}\",\"ts\":{event.ts},\"book_id\":\"{meta.book_id}\"}"
+      }
+    }
+  }
+}

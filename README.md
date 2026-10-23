@@ -1,7 +1,8 @@
 # YBX для CrossPoint — дистрибуция
 
 Официальный плагин YBX для CrossPoint Reader (Xteink X3/X4/X4 Pro):
-нативный каталог Яндекс Книг на e-ink, вход по QR (RFC 8628), полки,
+один каталог книг из подключённых магазинов (Яндекс Книги сейчас;
+Литрес и WB — по мере коннекторов), вход по QR (RFC 8628), полки,
 поиск, скачивание EPUB в `/books/ybx/`, события чтения для аналитики YBX.
 
 Исходник плагина — `YBX Site/plugins/crosspoint/ybx` (единственный источник
@@ -10,8 +11,8 @@
 ## Канал 1 — Plugin Hub (автоматически)
 
 Payload: `ybx.crosspoint-plugin/` (direct-child, `manifest.name: "ybx"`,
-`version: 1.0.0`). Для автообнаружения нужны публичный репозиторий, topic
-`crosspoint-plugin` и non-prerelease Release с тегом `v1.0.0`. После
+`version: 1.0.1`). Для автообнаружения нужны публичный репозиторий, topic
+`crosspoint-plugin` и non-prerelease Release с тегом `v1.0.1`. После
 обновления каталога (до 3 часов) плагин появляется в Community Plugins:
 Home → Plugins → Plugin Hub → Install → Community Plugins → Яндекс Книги.
 

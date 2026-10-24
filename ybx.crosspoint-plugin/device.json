@@ -2,7 +2,7 @@
   "title": "YBX",
   "description": "Каталог книг YBX: Яндекс Книги сейчас; Литрес и WB — по мере подключения коннекторов. События чтения для аналитики YBX.",
   "token": {
-    "file": "token.json",
+    "file": "/.crosspoint/plugin-data/ybx/token.json",
     "path": "access_token"
   },
   "browse": {

@@ -8,7 +8,8 @@ CrossPoint.registerPlugin(async (container, api) => {
   'use strict';
 
   const DIR = api.dir || '/.crosspoint/plugins/ybx';
-  const TOKEN_PATH = DIR + '/token.json';
+  // Plugin Hub replaces the whole plugin folder on update; plugin-data survives.
+  const TOKEN_PATH = '/.crosspoint/plugin-data/ybx/token.json';
   const API = 'https://my.ybx.app';
   const UPDATE_URL = 'https://ybx.app/crosspoint-plugin/latest.json';
   const KOSYNC_URL = API + '/api/v1/crosspoint/kosync';

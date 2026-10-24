@@ -130,14 +130,12 @@
       }
     },
     "sleep.enter": {
-      "request": {
-        "method": "POST",
-        "url": "https://my.ybx.app/api/v1/crosspoint/events",
+      "download": {
+        "url": "https://my.ybx.app/api/v1/crosspoint/sleep-image",
         "headers": {
-          "Authorization": "Bearer {token}",
-          "Content-Type": "application/json"
+          "Authorization": "Bearer {token}"
         },
-        "body": "{\"event\":\"sleep.enter\",\"event_id\":\"{event.id}\",\"ts\":{event.ts},\"book_id\":\"{meta.book_id}\"}"
+        "dest": "/sleep.bmp"
       }
     }
   }

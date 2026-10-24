@@ -6,7 +6,7 @@
       "title": "YBX",
       "description": "Каталог книг YBX: Яндекс Книги; ЛитРес и WB — по мере коннекторов.",
       "author": "YBX",
-      "version": "1.3.1",
+      "version": "1.4.0",
       "base": "https://raw.githubusercontent.com/jhdvp/ybx-crosspoint-plugin/main/ybx.crosspoint-plugin/",
       "files": [
         "manifest.json",

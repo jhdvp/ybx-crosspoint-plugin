@@ -3,7 +3,8 @@
 // Плагин на устройстве (device.json) открывает каталог и вход по QR. Эта
 // страница повторяет экран «Профиль» читалки YBX: сегодня/серия/неделя/год,
 // полоса недели, «Продолжить чтение» и достижения. Здесь же — KOReader Sync,
-// обновление плагина и отвязка, потому что с экрана ридера это недоступно.
+// обновление плагина, выгрузка статистики для прошивки vCodex и отвязка,
+// потому что с экрана ридера это недоступно.
 CrossPoint.registerPlugin(async (container, api) => {
   'use strict';
 
@@ -14,6 +15,12 @@ CrossPoint.registerPlugin(async (container, api) => {
   const API = 'https://my.ybx.app';
   const UPDATE_URL = 'https://ybx.app/crosspoint-plugin/latest.json';
   const KOSYNC_URL = API + '/api/v1/crosspoint/kosync';
+  // Firmware vCodex импортирует статистику из фиксированного файла: сначала
+  // кладём его туда, где его ищет страница импорта в данных плагина, затем —
+  // в путь, который читает Settings → Apps → Reading Stats.
+  const STATS_URL = API + '/api/v1/crosspoint/reading/vcodex';
+  const STATS_FILE = '/.crosspoint/reading_stats.json';
+  const STATS_IMPORT_FILE = '/exports/stats_exported';
   const SYNC_OFF = { koServerUrl: '', koUsername: '', koPassword: '' };
 
   if (!document.getElementById('ybx-plugin-style')) {
@@ -195,6 +202,61 @@ CrossPoint.registerPlugin(async (container, api) => {
   };
 
   let token = null;
+  // Второе нажатие «Выгрузить статистику» перезаписывает уже лежащий файл.
+  let statsArmed = false;
+
+  const downloadFailed = (result) =>
+    !result || result.error || !result.status || result.status < 200 || result.status >= 300;
+
+  // Same-origin листинг карты: нужен только чтобы не затирать файл молча.
+  async function fileExists(dir, name) {
+    try {
+      const res = await fetch('/api/files?path=' + encodeURIComponent(dir), { cache: 'no-store' });
+      if (!res.ok) return false;
+      const entries = await res.json();
+      return Array.isArray(entries) && entries.some((entry) => entry && entry.name === name && !entry.isDirectory);
+    } catch {
+      return false;
+    }
+  }
+
+  // Проверяем саму прошивку, а не только плагин: страница Import Statistics
+  // есть лишь в форках (vCodex/CPR/Mimee), а сток перечисляет только catalog.*.
+  let firmware = null;
+  async function firmwareStatus() {
+    if (firmware !== null) return firmware;
+    try {
+      const res = await fetch('/api/status', { cache: 'no-store' });
+      const data = res.ok ? await res.json() : {};
+      firmware = {
+        version: data.version || '',
+        family: data.firmwareFamily || '',
+        capabilities: String(data.pluginCapabilities || '')
+          .split(',').map((item) => item.trim()).filter(Boolean)
+      };
+    } catch {
+      firmware = { version: '', family: '', capabilities: [] };
+    }
+    return firmware;
+  }
+
+  // Один и тот же файл кладём в оба места: прошивка vCodex сканирует только
+  // `/.crosspoint/reading_stats.json`, а страница импорта CPR/Mimee-семейства
+  // читает `/exports/stats_exported`.
+  async function exportReadingStats() {
+    const headers = { Authorization: 'Bearer ' + token.access_token };
+    const results = [];
+    for (const path of [STATS_FILE, STATS_IMPORT_FILE]) {
+      let result = null;
+      try {
+        result = await api.fetchToSd(STATS_URL, path, headers);
+      } catch (error) {
+        result = { error: error.message };
+      }
+      results.push({ path, ok: !downloadFailed(result), detail: (result && (result.status || result.error)) || 'нет ответа' });
+    }
+    return results;
+  }
 
   // The sleep card needs the panel size before the first sleep, but a browser
   // page is not open then: config.json ships with the installer and this page
@@ -643,6 +705,76 @@ CrossPoint.registerPlugin(async (container, api) => {
       }
     };
 
+    const statsHint = document.createElement('div');
+    statsHint.hidden = true;
+
+    const statsButton = document.createElement('button');
+    statsButton.type = 'button';
+    statsButton.className = 'primary';
+    statsButton.textContent = 'Выгрузить статистику (vCodex)';
+    statsButton.disabled = !token;
+    statsButton.onclick = async () => {
+      statsButton.disabled = true;
+      message('Выгружаем статистику чтения…');
+      try {
+        const overwriting = statsArmed;
+        statsArmed = false;
+        const existing = [];
+        if (await fileExists('/.crosspoint', 'reading_stats.json')) existing.push(STATS_FILE);
+        if (await fileExists('/exports', 'stats_exported')) existing.push(STATS_IMPORT_FILE);
+        if (!overwriting && existing.length) {
+          statsArmed = true;
+          message('Файл уже есть: ' + existing.join(', ') + '. Нажмите ещё раз, чтобы перезаписать.');
+          return;
+        }
+        const results = await exportReadingStats();
+        const saved = results.filter((item) => item.ok).length;
+        const missed = results.filter((item) => !item.ok).map((item) => item.path + ' (' + item.detail + ')');
+        if (!saved) throw new Error(missed.join('; '));
+        if (missed.length) {
+          message('Сохранено ' + saved + ' из ' + results.length + ' — не записался ' + missed.join(', ') + '.', 'err');
+        } else {
+          message('Сохранено ' + saved + ' из ' + results.length + ': файл ждёт импорта.', 'ok');
+        }
+        if (!results[0].ok) {
+          statsHint.hidden = true;
+          return;
+        }
+        const info = await firmwareStatus();
+        const canImport = info.capabilities.includes('stats.native.v1')
+          && info.capabilities.includes('ui.dashboard.v1');
+        const steps = document.createElement('p');
+        steps.className = 'ybx-hint';
+        steps.textContent = canImport
+          ? 'Импорт: Настройки → Приложения → Reading Stats → Import Statistics → '
+            + 'источник vCodex → выбрать его ещё раз для подтверждения.'
+          : 'Файл на карте: /.crosspoint/reading_stats.json и /exports/stats_exported. '
+            + 'Если в прошивке есть страница Import Statistics, откройте её и выберите '
+            + 'источник vCodex (второй раз — для подтверждения); если такой страницы нет, '
+            + 'файл просто останется на карте.';
+        const caveat = document.createElement('p');
+        caveat.className = 'ybx-hint';
+        caveat.style.marginTop = '8px';
+        caveat.style.paddingTop = '0';
+        caveat.style.borderTop = 'none';
+        caveat.textContent = 'Импорт аддитивный и одноразовый по каждой книге: сессии, суммы и даты '
+          + 'чтения переносятся один раз, повторная выгрузка уже импортированные книги не пересчитает. '
+          + 'Счётчиков перелистываний в облаке нет, поэтому они не выдумываются.';
+        const detected = document.createElement('p');
+        detected.className = 'ybx-hint';
+        detected.style.marginTop = '8px';
+        detected.textContent = 'Прошивка: ' + (info.family || 'неизвестно')
+          + (info.version ? ' ' + info.version : '')
+          + '; возможности: ' + (info.capabilities.join(', ') || 'не сообщаются') + '.';
+        statsHint.replaceChildren(steps, caveat, detected);
+        statsHint.hidden = false;
+      } catch (error) {
+        message('Не удалось выгрузить статистику: ' + error.message, 'err');
+      } finally {
+        statsButton.disabled = !token;
+      }
+    };
+
     const actions = document.createElement('div');
     actions.className = 'ybx-actions';
 
@@ -746,13 +878,16 @@ CrossPoint.registerPlugin(async (container, api) => {
         signOutButton.disabled = false;
       }
     };
-    actions.append(sleepButton, sleepCardButton, syncButton, checkButton, updateButton, signOutButton);
+    actions.append(sleepButton, sleepCardButton, statsButton, syncButton, checkButton, updateButton, signOutButton);
     settings.appendChild(rows);
+    settings.appendChild(statsHint);
     settings.appendChild(actions);
     settingsWrap.appendChild(settings);
   }
 
   function renderSignedOut() {
+    // Состояние «ещё раз, чтобы перезаписать» живёт до отвязки или перезагрузки.
+    statsArmed = false;
     profile.replaceChildren();
     settingsWrap.replaceChildren();
     message('Ридер ещё не привязан. Откройте Home → Plugins → YBX на ридере и войдите по QR-коду.');

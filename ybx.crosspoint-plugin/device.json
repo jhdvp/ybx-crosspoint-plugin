@@ -131,12 +131,15 @@
     },
     "sleep.enter": {
       "download": {
-        "url": "https://my.ybx.app/api/v1/crosspoint/sleep-image",
+        "url": "https://my.ybx.app/api/v1/crosspoint/sleep-image?w={cfg.sleep_width}&h={cfg.sleep_height}",
         "headers": {
           "Authorization": "Bearer {token}"
         },
         "dest": "/sleep.bmp"
       }
     }
+  },
+  "config": {
+    "file": "config.json"
   }
 }

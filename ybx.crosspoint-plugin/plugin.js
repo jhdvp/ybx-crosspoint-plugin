@@ -75,6 +75,18 @@ CrossPoint.registerPlugin(async (container, api) => {
       .ybx-book span { display:block; color:var(--soft); font-size:12px; }
       .ybx-book em { display:block; margin-top:6px; font-style:normal;
         font-family:"Martian Mono",ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px; }
+      .ybx-heat { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
+      .ybx-heat-head { display:grid; grid-template-columns:repeat(7,1fr); gap:4px;
+        margin-bottom:4px; }
+      .ybx-heat-head span { font-family:"Martian Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+        font-size:8px; color:var(--soft); text-align:center; }
+      .ybx-cell { aspect-ratio:1; border:1px solid var(--line); background:var(--paper); }
+      .ybx-cell[data-level="1"] { background:#c3c6be; }
+      .ybx-cell[data-level="2"] { background:#8d9288; }
+      .ybx-cell[data-level="3"] { background:#4e534d; }
+      .ybx-cell[data-level="4"] { background:#14161a; }
+      .ybx-cell.future { opacity:.22; }
+      .ybx-cell.today { outline:2px solid var(--ink); outline-offset:-2px; }
       .ybx-ach { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; }
       .ybx-card { border:1px solid var(--line); background:var(--plate); padding:10px;
         display:flex; flex-direction:column; gap:4px; min-width:0; }
@@ -168,6 +180,23 @@ CrossPoint.registerPlugin(async (container, api) => {
   };
 
   let token = null;
+
+  // The sleep card needs the panel size before the first sleep, but a browser
+  // page is not open then: config.json ships with the installer and this page
+  // corrects it from /api/status as soon as it runs.
+  async function ensureDeviceConfig() {
+    try {
+      const status = await fetch('/api/status', { cache: 'no-store' }).then((res) => res.json());
+      const isX3 = String(status && status.device || '').toUpperCase() === 'X3';
+      const next = { sleep_width: isX3 ? '528' : '480', sleep_height: isX3 ? '792' : '800' };
+      const current = await readJson(DIR + '/config.json');
+      if (!current || current.sleep_width !== next.sleep_width || current.sleep_height !== next.sleep_height) {
+        await writeJson(DIR + '/config.json', { ...(current || {}), ...next });
+      }
+    } catch (error) {
+      // A config fallback already ships with the plugin; page access is not essential.
+    }
+  }
 
   const relay = async (path, auth) => {
     const res = await api.relay('GET', API + path, { Authorization: 'Bearer ' + auth }, '');
@@ -265,6 +294,46 @@ CrossPoint.registerPlugin(async (container, api) => {
     const weekSection = section('Неделя', 'минуты по дням');
     weekSection.appendChild(weekWrap);
     profile.appendChild(weekSection);
+
+    const calendarDays = Array.isArray(calendar && calendar.days) ? calendar.days : [];
+    if (calendarDays.length) {
+      const todayLabel = summary.today || '';
+      let monthTitle = '';
+      try {
+        monthTitle = new Date(todayLabel + 'T12:00:00').toLocaleDateString('ru-RU', { month: 'long' });
+      } catch { monthTitle = ''; }
+      const heatSection = section('Календарь', monthTitle);
+      const head = document.createElement('div');
+      head.className = 'ybx-heat-head';
+      ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'].forEach((label) => {
+        const cell = document.createElement('span');
+        cell.textContent = label;
+        head.appendChild(cell);
+      });
+      const grid = document.createElement('div');
+      grid.className = 'ybx-heat';
+      const first = calendarDays[0] ? new Date(calendarDays[0].date + 'T12:00:00') : null;
+      if (first) {
+        const offset = (first.getDay() + 6) % 7;
+        for (let index = 0; index < offset; index += 1) {
+          const blank = document.createElement('div');
+          blank.className = 'ybx-cell';
+          blank.style.visibility = 'hidden';
+          grid.appendChild(blank);
+        }
+      }
+      calendarDays.forEach((day) => {
+        const cell = document.createElement('div');
+        cell.className = 'ybx-cell';
+        cell.dataset.level = String(Math.max(0, Math.min(4, Number(day.level) || 0)));
+        if (day.future) cell.classList.add('future');
+        if (day.date === todayLabel) cell.classList.add('today');
+        cell.title = day.date + (typeof day.minutes === 'number' ? ' · ' + day.minutes + ' мин' : '');
+        grid.appendChild(cell);
+      });
+      heatSection.append(head, grid);
+      profile.appendChild(heatSection);
+    }
 
     const books = Array.isArray(summary.currently_reading) ? summary.currently_reading : [];
     const booksSection = section('Продолжить чтение', books.length ? books.length + ' книг' : '');
@@ -548,6 +617,7 @@ CrossPoint.registerPlugin(async (container, api) => {
   }
 
   async function refresh() {
+    await ensureDeviceConfig();
     token = await readJson(TOKEN_PATH);
     if (!token || !token.access_token) {
       renderSignedOut();

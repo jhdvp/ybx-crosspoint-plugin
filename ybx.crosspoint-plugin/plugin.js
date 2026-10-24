@@ -539,6 +539,18 @@ CrossPoint.registerPlugin(async (container, api) => {
     }
   }
 
+  async function refreshSleepCard() {
+    if (!token) throw new Error('сначала войдите в YBX');
+    const config = await readJson(DIR + '/config.json') || {};
+    const width = config.sleep_width || '480';
+    const height = config.sleep_height || '800';
+    await api.fetchToSd(
+      API + '/api/v1/crosspoint/sleep-image?w=' + encodeURIComponent(width) + '&h=' + encodeURIComponent(height),
+      '/sleep.bmp',
+      { Authorization: 'Bearer ' + token.access_token },
+    );
+  }
+
   async function loadProfile() {
     const versionText = await version();
     settingsWrap.replaceChildren();
@@ -610,6 +622,24 @@ CrossPoint.registerPlugin(async (container, api) => {
       } catch (error) {
         message('Не удалось включить экран сна: ' + error.message, 'err');
         sleepButton.disabled = false;
+      }
+    };
+
+    const sleepCardButton = document.createElement('button');
+    sleepCardButton.type = 'button';
+    sleepCardButton.className = 'primary';
+    sleepCardButton.textContent = 'Обновить карточку сна';
+    sleepCardButton.disabled = !token || sleepMode !== 2;
+    sleepCardButton.onclick = async () => {
+      sleepCardButton.disabled = true;
+      message('Загружаем карточку сна…');
+      try {
+        await refreshSleepCard();
+        message('Карточка обновлена: она появится при следующем засыпании.', 'ok');
+      } catch (error) {
+        message('Не удалось обновить карточку: ' + error.message, 'err');
+      } finally {
+        sleepCardButton.disabled = !token || sleepMode !== 2;
       }
     };
 
@@ -716,7 +746,7 @@ CrossPoint.registerPlugin(async (container, api) => {
         signOutButton.disabled = false;
       }
     };
-    actions.append(sleepButton, syncButton, checkButton, updateButton, signOutButton);
+    actions.append(sleepButton, sleepCardButton, syncButton, checkButton, updateButton, signOutButton);
     settings.appendChild(rows);
     settings.appendChild(actions);
     settingsWrap.appendChild(settings);

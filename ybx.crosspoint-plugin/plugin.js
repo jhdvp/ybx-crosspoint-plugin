@@ -8,8 +8,9 @@ CrossPoint.registerPlugin(async (container, api) => {
   'use strict';
 
   const DIR = api.dir || '/.crosspoint/plugins/ybx';
-  // Plugin Hub replaces the whole plugin folder on update; plugin-data survives.
-  const TOKEN_PATH = '/.crosspoint/plugin-data/ybx/token.json';
+  // Firmware writes tokens only into an already existing directory.
+  const TOKEN_PATH = DIR + '/token.json';
+  const LEGACY_TOKEN_PATH = '/.crosspoint/plugin-data/ybx/token.json';
   const API = 'https://my.ybx.app';
   const UPDATE_URL = 'https://ybx.app/crosspoint-plugin/latest.json';
   const KOSYNC_URL = API + '/api/v1/crosspoint/kosync';
@@ -76,6 +77,13 @@ CrossPoint.registerPlugin(async (container, api) => {
       .ybx-book span { display:block; color:var(--soft); font-size:12px; }
       .ybx-book em { display:block; margin-top:6px; font-style:normal;
         font-family:"Martian Mono",ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px; }
+      .ybx-book.clickable { cursor:pointer; }
+      .ybx-book.clickable:active { outline:2px solid var(--ink); outline-offset:-2px; }
+      .ybx-detail { border:1px solid var(--line); background:var(--plate); padding:14px; }
+      .ybx-detail h3 { margin:0 0 2px; font-size:17px; }
+      .ybx-detail .ybx-sub { margin:0 0 12px; color:var(--soft); font-size:13px; }
+      .ybx-detail .ybx-row:first-child { border-top:0; }
+      .ybx-back { margin:0 0 14px; }
       .ybx-heat { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
       .ybx-heat-head { display:grid; grid-template-columns:repeat(7,1fr); gap:4px;
         margin-bottom:4px; }
@@ -155,6 +163,12 @@ CrossPoint.registerPlugin(async (container, api) => {
       const res = await fetch('/download?path=' + encodeURIComponent(path));
       return res.ok ? await res.json() : null;
     } catch { return null; }
+  };
+  const readPluginToken = async () => {
+    const current = await readJson(TOKEN_PATH);
+    if (current?.access_token) return current;
+    const legacy = await readJson(LEGACY_TOKEN_PATH);
+    return legacy?.access_token ? legacy : current;
   };
   const writeJson = (path, value) => api.writeFile(path, b64(JSON.stringify(value)));
   const readSettings = async () => {
@@ -355,6 +369,16 @@ CrossPoint.registerPlugin(async (container, api) => {
         const em = document.createElement('em');
         em.textContent = 'Прочитано ' + percent(book.percent);
         card.append(b, author, em);
+        if (book.id && token) {
+          card.classList.add('clickable');
+          card.setAttribute('role', 'button');
+          card.tabIndex = 0;
+          const open = () => showBookCard(book.id);
+          card.onclick = open;
+          card.onkeydown = (event) => {
+            if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); }
+          };
+        }
         list.appendChild(card);
       });
       booksSection.appendChild(list);
@@ -416,9 +440,103 @@ CrossPoint.registerPlugin(async (container, api) => {
   }
 
   function renderProfile(summary, calendar, achievements) {
+    lastProfile = { summary, calendar, achievements };
     profile.replaceChildren();
     renderStats(summary, calendar);
     renderAchievements(achievements);
+  }
+
+  // The profile data the book card returns to, so «назад» re-renders without a reload.
+  let lastProfile = null;
+
+  const dateText = (stamp) => {
+    if (stamp === null || stamp === undefined) return null;
+    const d = new Date(Number(stamp) * 1000);
+    return Number.isNaN(d.getTime()) ? null
+      : d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+  };
+  const sourcesOf = (detail) => {
+    const set = new Set();
+    [detail.percent, detail.minutes, detail.sessions].forEach((metric) => {
+      (metric && metric.sources || []).forEach((source) => set.add(source));
+    });
+    if (detail.dates_source) set.add(detail.dates_source);
+    return [...set].map((source) => (source === 'ybx_reader' ? 'YBX-ридер' : source)).join(' · ');
+  };
+
+  function renderBookCard(detail) {
+    profile.replaceChildren();
+    const back = document.createElement('button');
+    back.type = 'button';
+    back.className = 'ybx-back';
+    back.textContent = '← Назад';
+    back.onclick = () => {
+      if (lastProfile) {
+        renderProfile(lastProfile.summary, lastProfile.calendar, lastProfile.achievements);
+      } else {
+        refresh();
+      }
+    };
+    profile.appendChild(back);
+
+    const wrap = section('Книга');
+    const card = document.createElement('div');
+    card.className = 'ybx-detail';
+    const title = document.createElement('h3');
+    title.textContent = detail.title || 'Без названия';
+    const author = document.createElement('p');
+    author.className = 'ybx-sub';
+    author.textContent = detail.author || '';
+    card.append(title, author);
+
+    const rows = document.createElement('div');
+    rows.className = 'ybx-list';
+    const row = (label, value) => {
+      const line = document.createElement('div');
+      line.className = 'ybx-row';
+      const left = document.createElement('span');
+      left.className = 'ybx-label';
+      left.textContent = label;
+      const right = document.createElement('span');
+      right.className = 'ybx-value';
+      right.textContent = value;
+      line.append(left, right);
+      rows.appendChild(line);
+    };
+    row('Прочитано', percent(detail.percent));
+    row('Активные минуты', mins(number(detail.minutes)));
+    row('Сессии', number(detail.sessions) === null ? '—' : String(number(detail.sessions)));
+    const started = dateText(detail.started_at);
+    if (started) row('Начало', started);
+    const finished = dateText(detail.finished_at);
+    if (finished) row('Окончание', finished);
+    const source = sourcesOf(detail);
+    if (source) row('Источник', source);
+    card.appendChild(rows);
+    wrap.appendChild(card);
+    profile.appendChild(wrap);
+  }
+
+  async function showBookCard(bookId) {
+    if (!token) return;
+    profile.replaceChildren();
+    const note = document.createElement('p');
+    note.className = 'ybx-hint';
+    note.style.marginTop = '0';
+    note.textContent = 'Загружаем книгу…';
+    profile.appendChild(note);
+    try {
+      const detail = await relay(
+        '/api/v1/crosspoint/reading/books/' + encodeURIComponent(bookId), token.access_token);
+      renderBookCard(detail);
+    } catch (error) {
+      if (lastProfile) {
+        renderProfile(lastProfile.summary, lastProfile.calendar, lastProfile.achievements);
+      } else {
+        refresh();
+      }
+      message('Не удалось загрузить книгу: ' + error.message, 'err');
+    }
   }
 
   async function loadProfile() {
@@ -587,6 +705,7 @@ CrossPoint.registerPlugin(async (container, api) => {
       signOutButton.disabled = true;
       try {
         await writeJson(TOKEN_PATH, {});
+        await writeJson(LEGACY_TOKEN_PATH, {}).catch(() => {});
         if (pointsToYbx(await readSettings())) await writeSettings(SYNC_OFF);
         token = null;
         renderSignedOut();
@@ -619,7 +738,7 @@ CrossPoint.registerPlugin(async (container, api) => {
 
   async function refresh() {
     await ensureDeviceConfig();
-    token = await readJson(TOKEN_PATH);
+    token = await readPluginToken();
     if (!token || !token.access_token) {
       renderSignedOut();
       return;

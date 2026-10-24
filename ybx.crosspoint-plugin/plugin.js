@@ -27,19 +27,22 @@ CrossPoint.registerPlugin(async (container, api) => {
     const style = document.createElement('style');
     style.id = 'ybx-plugin-style';
     style.textContent = `
-      .ybx { --paper:#e7e8e3; --plate:#dddfd8; --ink:#14161a; --soft:#5d625d;
-        --line:#c3c6be; --accent:#ffdb4d; --ok:#1f6b35; --err:#a32b2b;
-        max-width:640px; margin:0 auto; padding:20px; background:var(--paper);
-        color:var(--ink); border:1px solid var(--line);
-        font-family:"Golos Text","Segoe UI",system-ui,sans-serif;
+      .ybx { --paper:var(--card-bg, transparent); --plate:var(--bg, transparent);
+        --ink:var(--font-color, inherit); --soft:var(--muted-color, inherit);
+        --line:var(--border-color, #aaa); --accent:var(--button-bg, #4a7a62);
+        --ok:var(--success-color, #3d6652); --err:var(--danger-color, #b42318);
+        width:100%; margin:0; padding:0; background:transparent;
+        color:var(--ink); border:0; font-family:inherit;
         font-size:15px; line-height:1.5; -webkit-font-smoothing:antialiased; }
       .ybx * { box-sizing:border-box; }
       .ybx [hidden] { display:none !important; }
+      .web-ui .ybx h1, .web-ui .ybx h2, .web-ui .ybx h3,
+      .ybx h1, .ybx h2, .ybx h3 { color:var(--ink); }
       .ybx-head { display:flex; align-items:baseline; justify-content:space-between;
         gap:12px; margin:0 0 14px; }
-      .ybx-word { font-family:"Martian Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+      .ybx-word { font-family:inherit;
         font-weight:700; font-size:22px; letter-spacing:-.04em; margin:0; }
-      .ybx-tag { font-family:"Martian Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+      .ybx-tag { font-family:inherit;
         font-size:10px; text-transform:uppercase; letter-spacing:.08em;
         color:var(--soft); border:1px solid var(--line); padding:3px 6px; }
       .ybx-status { margin:0 0 16px; padding:10px 12px; border:1px solid var(--line);
@@ -50,13 +53,13 @@ CrossPoint.registerPlugin(async (container, api) => {
       .ybx-section:first-of-type { margin-top:0; }
       .ybx-h { display:flex; align-items:baseline; justify-content:space-between;
         gap:10px; margin:0 0 10px; }
-      .ybx-h h2 { margin:0; font-family:"Martian Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+      .ybx .ybx-h h2 { margin:0; font-family:inherit;
         font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
       .ybx-h span { color:var(--soft); font-size:12px; }
-      .ybx-metrics { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
-      .ybx-metric { border:1px solid var(--line); background:var(--plate); padding:12px; }
-      .ybx-metric b { display:block; font-family:"Martian Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
-        font-size:26px; line-height:1.05; letter-spacing:-.03em; }
+      .ybx-metrics { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+      .ybx-metric { border:1px solid var(--line); background:var(--plate); padding:12px; border-radius:12px; min-width:0; }
+      .ybx-metric b { display:block; font-family:inherit;
+        font-size:clamp(20px,5vw,28px); line-height:1.2; letter-spacing:-.02em; font-variant-numeric:tabular-nums; white-space:nowrap; }
       .ybx-metric span { display:block; margin-top:4px; font-size:11px; text-transform:uppercase;
         letter-spacing:.06em; color:var(--soft); }
       .ybx-metric small { display:block; margin-top:6px; font-size:11px; color:var(--soft); }
@@ -65,26 +68,29 @@ CrossPoint.registerPlugin(async (container, api) => {
         font-size:12px; color:var(--soft); margin-bottom:6px; }
       .ybx-bar { height:4px; background:var(--line); overflow:hidden; }
       .ybx-bar i { display:block; height:100%; background:var(--ink); }
-      .ybx-week { display:flex; align-items:flex-end; gap:6px; height:96px;
+      .ybx-week { display:flex; align-items:flex-end; gap:6px; height:128px;
         padding:8px 10px; border:1px solid var(--line); background:var(--plate); }
       .ybx-day { flex:1; display:flex; flex-direction:column; align-items:center;
         justify-content:flex-end; gap:4px; height:100%; min-width:0; }
-      .ybx-day i { display:block; width:100%; background:var(--ink); min-height:1px; }
-      .ybx-day span { font-family:"Martian Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
-        font-size:9px; color:var(--soft); }
+      .ybx-day i { display:block; flex-shrink:0; width:100%; max-width:36px; background:var(--accent); border-radius:4px 4px 0 0; }
+      .ybx-day strong { font-size:11px; font-weight:500; color:var(--ink); font-variant-numeric:tabular-nums; }
+      .ybx-day span { font-family:inherit;
+        font-size:11px; color:var(--soft); }
       .ybx-list { display:grid; gap:6px; }
       .ybx-row { display:flex; align-items:center; justify-content:space-between;
         gap:12px; padding:10px 0; border-top:1px solid var(--line); }
       .ybx-row:first-child { border-top:0; }
-      .ybx-label { font-family:"Martian Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+      .ybx-label { font-family:inherit;
         font-size:11px; letter-spacing:.04em; text-transform:uppercase; color:var(--soft); }
       .ybx-value { font-size:14px; text-align:right; }
-      .ybx-book { border:1px solid var(--line); background:var(--plate); padding:10px 12px; }
+      .ybx-book { border:1px solid var(--line); background:transparent; padding:12px; border-radius:12px; }
       .ybx-book b { display:block; font-size:14px; }
       .ybx-book span { display:block; color:var(--soft); font-size:12px; }
       .ybx-book em { display:block; margin-top:6px; font-style:normal;
-        font-family:"Martian Mono",ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px; }
+        font-family:inherit; font-size:11px; }
       .ybx-book.clickable { cursor:pointer; }
+      .ybx-book.clickable:hover { background:var(--plate); }
+      .ybx-book.clickable:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
       .ybx-book.clickable:active { outline:2px solid var(--ink); outline-offset:-2px; }
       .ybx-detail { border:1px solid var(--line); background:var(--plate); padding:14px; }
       .ybx-detail h3 { margin:0 0 2px; font-size:17px; }
@@ -94,13 +100,13 @@ CrossPoint.registerPlugin(async (container, api) => {
       .ybx-heat { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
       .ybx-heat-head { display:grid; grid-template-columns:repeat(7,1fr); gap:4px;
         margin-bottom:4px; }
-      .ybx-heat-head span { font-family:"Martian Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
-        font-size:8px; color:var(--soft); text-align:center; }
-      .ybx-cell { aspect-ratio:1; border:1px solid var(--line); background:var(--paper); }
-      .ybx-cell[data-level="1"] { background:#c3c6be; }
-      .ybx-cell[data-level="2"] { background:#8d9288; }
-      .ybx-cell[data-level="3"] { background:#4e534d; }
-      .ybx-cell[data-level="4"] { background:#14161a; }
+      .ybx-heat-head span { font-family:inherit;
+        font-size:10px; color:var(--soft); text-align:center; }
+      .ybx-cell { aspect-ratio:1; border:1px solid var(--line); background:var(--paper); display:grid; place-items:center; border-radius:4px; font-size:11px; color:var(--ink); }
+      .ybx-cell[data-level="1"] { background:var(--accent-color-10, #f0f5f3); }
+      .ybx-cell[data-level="2"] { background:color-mix(in srgb, var(--accent) 35%, var(--paper)); }
+      .ybx-cell[data-level="3"] { background:color-mix(in srgb, var(--accent) 65%, var(--paper)); }
+      .ybx-cell[data-level="4"] { background:var(--accent); color:var(--button-text, #fff); }
       .ybx-cell.future { opacity:.22; }
       .ybx-cell.today { outline:2px solid var(--ink); outline-offset:-2px; }
       .ybx-ach { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; }
@@ -111,14 +117,17 @@ CrossPoint.registerPlugin(async (container, api) => {
       .ybx-card .ybx-bar { margin-top:auto; }
       .ybx-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
       .ybx button, .ybx a.ybx-btn { appearance:none; min-height:44px; padding:10px 16px;
-        border:1px solid var(--ink); background:transparent; color:var(--ink);
+        border:1px solid var(--control-border, var(--line)); border-radius:8px; background:transparent; color:var(--ink);
         font:inherit; font-weight:600; cursor:pointer; text-decoration:none;
         display:inline-flex; align-items:center; justify-content:center; }
-      .ybx button.primary { background:var(--accent); }
+      .ybx button.primary { background:var(--accent); color:var(--button-text, #fff); border-color:transparent; }
+      .ybx button:focus-visible, .ybx summary:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+      .ybx details { margin-top:12px; }
+      .ybx summary { cursor:pointer; color:var(--soft); }
       .ybx button:disabled { opacity:.45; cursor:default; }
       .ybx-hint { margin:16px 0 0; padding-top:12px; border-top:1px solid var(--line);
         color:var(--soft); font-size:13px; }
-      .ybx-ver { font-family:"Martian Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+      .ybx-ver { font-family:inherit;
         font-size:12px; color:var(--soft); }
     `;
     document.head.appendChild(style);
@@ -298,8 +307,8 @@ CrossPoint.registerPlugin(async (container, api) => {
   };
   const dayLabel = (iso) => {
     const names = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
-    const d = new Date(iso + 'T12:00:00');
-    return Number.isNaN(d.getTime()) ? '' : names[d.getDay()];
+    const d = new Date(iso + 'T12:00:00Z');
+    return Number.isNaN(d.getTime()) ? '' : names[d.getUTCDay()];
   };
 
   function renderStats(summary, calendar) {
@@ -344,15 +353,23 @@ CrossPoint.registerPlugin(async (container, api) => {
       profile.appendChild(wrap);
     }
 
+    // Summary carries the full current week, including days in the previous
+    // month. The public calendar deliberately omits provenance (sources).
     const days = Array.isArray(calendar && calendar.days) ? calendar.days : [];
     const byDate = new Map(days.map((day) => [day.date, day]));
-    const today = summary.today ? new Date(summary.today + 'T12:00:00') : new Date();
+    const observedWeek = Array.isArray(summary.week_days) ? summary.week_days : [];
+    observedWeek.forEach((day) => byDate.set(day.date, day));
+    const todayIso = summary.today || new Date().toISOString().slice(0, 10);
+    const today = new Date(todayIso + 'T12:00:00Z');
+    const mondayOffset = (today.getUTCDay() + 6) % 7;
     const week = [];
-    for (let offset = 6; offset >= 0; offset -= 1) {
-      const d = new Date(today.getTime() - offset * 86400000);
+    for (let index = 0; index < 7; index += 1) {
+      const d = new Date(today.getTime() + (index - mondayOffset) * 86400000);
       const iso = d.toISOString().slice(0, 10);
       const day = byDate.get(iso);
-      week.push({ iso, minutes: day && day.sources && day.sources.length ? day.minutes : 0 });
+      const known = iso <= todayIso && day && typeof day.minutes === 'number'
+        && Number.isFinite(day.minutes) && (!Array.isArray(day.sources) || day.sources.length > 0);
+      week.push({ iso, minutes: known ? Math.max(0, day.minutes) : null });
     }
     const max = Math.max(1, ...week.map((day) => day.minutes));
     const weekWrap = document.createElement('div');
@@ -361,11 +378,14 @@ CrossPoint.registerPlugin(async (container, api) => {
       const column = document.createElement('div');
       column.className = 'ybx-day';
       const bar = document.createElement('i');
-      bar.style.height = Math.max(2, Math.round((day.minutes / max) * 100)) + '%';
+      bar.style.height = (day.minutes === null ? 0 : Math.max(2, Math.round((day.minutes / max) * 72))) + 'px';
       bar.style.opacity = day.minutes ? '1' : '.25';
       const label = document.createElement('span');
       label.textContent = dayLabel(day.iso);
-      column.append(bar, label);
+      const value = document.createElement('strong');
+      value.textContent = day.minutes === null ? '—' : String(day.minutes);
+      column.title = day.iso + (day.minutes === null ? ' · нет данных' : ' · ' + day.minutes + ' мин');
+      column.append(value, bar, label);
       weekWrap.appendChild(column);
     });
     const weekSection = section('Неделя', 'минуты по дням');
@@ -402,6 +422,7 @@ CrossPoint.registerPlugin(async (container, api) => {
       calendarDays.forEach((day) => {
         const cell = document.createElement('div');
         cell.className = 'ybx-cell';
+        cell.textContent = String(Number(day.date.slice(-2)));
         cell.dataset.level = String(Math.max(0, Math.min(4, Number(day.level) || 0)));
         if (day.future) cell.classList.add('future');
         if (day.date === todayLabel) cell.classList.add('today');
@@ -640,6 +661,17 @@ CrossPoint.registerPlugin(async (container, api) => {
     syncValue.textContent = synced ? 'включён' : 'выключен';
     syncRow.append(syncLabel, syncValue);
     rows.appendChild(sleepRow);
+    const sleepHelp = document.createElement('details');
+    const sleepHelpTitle = document.createElement('summary');
+    sleepHelpTitle.textContent = 'Как обновляется экран сна';
+    const sleepHelpText = document.createElement('p');
+    sleepHelpText.className = 'ybx-hint';
+    sleepHelpText.textContent = 'Карточку обновляет прошивка перед засыпанием — заходить в плагин не нужно. '
+      + 'Без связи останется предыдущая картинка. Во время сна обновлений нет. '
+      + 'В проверенной сборке 2.0.0-rc+91ed3ef ридер пробует последнюю сеть до 10 секунд '
+      + 'при заряде от 20%; на других сборках условия зависят от прошивки.';
+    sleepHelp.append(sleepHelpTitle, sleepHelpText);
+    rows.appendChild(sleepHelp);
     rows.appendChild(syncRow);
     const syncButton = document.createElement('button');
     syncButton.type = 'button';
@@ -648,8 +680,31 @@ CrossPoint.registerPlugin(async (container, api) => {
     syncButton.disabled = !token || synced;
     syncButton.onclick = async () => {
       syncButton.disabled = true;
-      message('Настраиваем KOReader Sync…');
       try {
+        const latest = await readSettings();
+        if (pointsToYbx(latest)) {
+          syncValue.textContent = 'включён';
+          syncButton.textContent = 'KOReader Sync настроен';
+          message('Синхронизация с YBX уже настроена. Настройки не изменены.', 'ok');
+          return;
+        }
+        let server = 'не указан';
+        const configuredServer = settingValue(latest, 'koServerUrl');
+        if (configuredServer) {
+          try {
+            const url = new URL(configuredServer);
+            server = url.origin + url.pathname;
+          } catch { server = 'настроен другой сервер'; }
+        }
+        if (!window.confirm('Настроить синхронизацию с YBX?\n\nТекущий сервер: ' + server
+          + '\n\nБудут заменены адрес сервера, имя пользователя, пароль и параметры '
+          + 'синхронизации на этом ридере. Сохранённый прогресс на прежнем сервере не удаляется.'
+          + '\n\nПродолжить?')) {
+          syncButton.disabled = false;
+          message('Настройка отменена. Прежние настройки сохранены.');
+          return;
+        }
+        message('Настраиваем KOReader Sync…');
         await writeSettings({
           koServerUrl: KOSYNC_URL,
           koUsername: 'ybx',
@@ -680,7 +735,7 @@ CrossPoint.registerPlugin(async (container, api) => {
         await writeSettings({ sleepScreen: 2 });
         sleepValue.textContent = 'статистика YBX';
         sleepButton.textContent = 'Экран сна включён';
-        message('Готово: при засыпании ридер обновит картинку со статистикой.', 'ok');
+        message('Экран сна включён. Перед засыпанием ридер попробует загрузить свежую статистику через Wi-Fi.', 'ok');
       } catch (error) {
         message('Не удалось включить экран сна: ' + error.message, 'err');
         sleepButton.disabled = false;
@@ -705,7 +760,7 @@ CrossPoint.registerPlugin(async (container, api) => {
       }
     };
 
-    const statsHint = document.createElement('div');
+    const statsHint = document.createElement('details');
     statsHint.hidden = true;
 
     const statsButton = document.createElement('button');
@@ -766,7 +821,9 @@ CrossPoint.registerPlugin(async (container, api) => {
         detected.textContent = 'Прошивка: ' + (info.family || 'неизвестно')
           + (info.version ? ' ' + info.version : '')
           + '; возможности: ' + (info.capabilities.join(', ') || 'не сообщаются') + '.';
-        statsHint.replaceChildren(steps, caveat, detected);
+        const detailsTitle = document.createElement('summary');
+        detailsTitle.textContent = 'Как импортировать статистику';
+        statsHint.replaceChildren(detailsTitle, steps, caveat, detected);
         statsHint.hidden = false;
       } catch (error) {
         message('Не удалось выгрузить статистику: ' + error.message, 'err');

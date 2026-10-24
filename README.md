@@ -11,8 +11,8 @@
 ## Канал 1 — Plugin Hub (автоматически)
 
 Payload: `ybx.crosspoint-plugin/` (direct-child, `manifest.name: "ybx"`,
-`version: 1.0.1`). Для автообнаружения нужны публичный репозиторий, topic
-`crosspoint-plugin` и non-prerelease Release с тегом `v1.0.1`. После
+`version: 1.4.1`). Для автообнаружения нужны публичный репозиторий, topic
+`crosspoint-plugin` и non-prerelease Release с тегом `v1.4.1`. После
 обновления каталога (до 3 часов) плагин появляется в Community Plugins:
 Home → Plugins → Plugin Hub → Install → Community Plugins → Яндекс Книги.
 

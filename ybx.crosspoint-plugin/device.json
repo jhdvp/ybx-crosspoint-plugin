@@ -1,6 +1,6 @@
 {
   "title": "YBX",
-  "description": "Каталог книг YBX: Яндекс Книги сейчас; Литрес и WB — по мере подключения коннекторов. События чтения для аналитики YBX.",
+  "description": "Библиотеки Яндекс Книг и WB Книг в YBX. Скачивание EPUB и статистика чтения.",
   "token": {
     "file": "token.json",
     "path": "access_token"
@@ -41,6 +41,10 @@
       {
         "title": "Все книги",
         "url": "https://my.ybx.app/api/v1/crosspoint/catalog?shelf=all&page={page}&limit={limit}"
+      },
+      {
+        "title": "WB Книги",
+        "url": "https://my.ybx.app/api/v1/crosspoint/wb/catalog?page={page}&limit={limit}"
       }
     ]
   },
@@ -51,10 +55,10 @@
       "Authorization": "Bearer {token}"
     },
     "dest_dir": "/books/ybx",
-    "filename": "{title}.epub",
+    "filename": "{id} - {title}.epub",
     "sidecar": {
       "path": "{dest}.meta.json",
-      "body": "{\"book_id\":\"{id}\",\"provider\":\"yandex\"}"
+      "body": "{\"book_id\":\"{id}\",\"provider\":\"ybx\"}"
     }
   },
   "auth": {

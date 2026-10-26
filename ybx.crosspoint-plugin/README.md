@@ -1,14 +1,13 @@
 # YBX для CrossPoint
 
 Плагин YBX для ридеров на прошивке CrossPoint (Xteink X4, X3, X4 Pro и др.):
-один каталог книг из подключённых магазинов. Сейчас работает **Яндекс Книги**;
-коннекторы **Литрес** и **WB Книги** готовятся — при их подключении название
-плагина и меню не меняются, меняется только список источников в кабинете YBX.
+библиотеки **Яндекс Книг** и **WB Книг** из подключённых аккаунтов YBX.
+Литрес пока не подключён к скачиванию через этот плагин.
 
 ## Возможности
 
 - **Авторизация по QR-коду (RFC 8628)**: вывод кода и QR-ссылки прямо на e-ink экран для быстрой привязки через смартфон без ручного ввода паролей.
-- **Полки каталога**: просмотр списков «Читаю», «Хочу прочитать», «Прочитано» и «Все книги».
+- **Полки каталога**: просмотр списков «Читаю», «Хочу прочитать», «Прочитано» и «Все книги» Яндекса, а также отдельного раздела «WB Книги».
 - **Поиск**: поиск по каталогу с экранной клавиатуры ридера.
 - **Загрузка книг**: прямое скачивание EPUB в папку `/books/ybx/` на карте памяти с автоматической записью метаданных в sidecar-файл (`.meta.json`).
 - **Мгновенное обновление библиотеки**: новые книги сразу видны в Библиотеке ридера без перезагрузки (CrossPoint 2.0.0+).
@@ -151,3 +150,27 @@ CrossPoint. Сервер исправляет полку «Читаю» для �
 
 Вложенные папки, обложки JSON-карточек и меню действий требуют доработки
 прошивки. Полное дерево провайдеров, полок и серий доступно через OPDS.
+
+
+## WB Books in 1.5.0
+
+Connect WB Books in the YBX account cabinet, then open the WB Books catalog
+in the plugin. Only EPUB entries from that account's library are offered.
+The search covers Yandex Books and a connected WB library. Subscription
+access is enforced by WB when YBX requests the file; appearing in the library
+does not guarantee that every title is downloadable.
+
+WB credentials remain on the server. CrossPoint receives the EPUB stream
+through YBX, with the configured server download-size limit. Expired WB
+authorization is refreshed once using the stored refresh token. If refresh
+fails, reconnect WB in the account cabinet. The firmware displays a generic
+fetch error for that response and keeps the plugin token.
+
+Book IDs beginning with `wb--` identify WB entries in sidecar metadata. New
+downloads use `{id} - {title}.epub` to prevent books with the same title from
+replacing one another. Existing files are not renamed. Metadata uses provider
+`ybx`; the book ID identifies the source. Old Yandex sidecars remain valid.
+
+WB and purchased LitRes EPUBs are also available in OPDS, with signed links.
+The library scan is bounded to 1,000 entries; larger libraries return an error.
+Physical-reader verification remains a separate check.

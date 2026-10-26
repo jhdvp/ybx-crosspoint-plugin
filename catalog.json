@@ -4,9 +4,9 @@
     {
       "name": "ybx",
       "title": "YBX",
-      "description": "Каталог книг YBX: Яндекс Книги; ЛитРес и WB — по мере коннекторов.",
+      "description": "Библиотеки Яндекс Книг и WB Книг в YBX. Скачивание EPUB и статистика чтения.",
       "author": "YBX",
-      "version": "1.4.1",
+      "version": "1.5.0",
       "base": "https://raw.githubusercontent.com/jhdvp/ybx-crosspoint-plugin/main/ybx.crosspoint-plugin/",
       "files": [
         "manifest.json",

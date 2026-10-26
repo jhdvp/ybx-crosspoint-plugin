@@ -1,8 +1,8 @@
 {
   "name": "ybx",
   "title": "YBX",
-  "version": "1.4.1",
-  "description": "Каталог книг YBX: Яндекс Книги сейчас; Литрес и WB — по мере подключения коннекторов. События чтения для аналитики YBX.",
+  "version": "1.5.0",
+  "description": "Библиотеки Яндекс Книг и WB Книг в YBX. Скачивание EPUB и статистика чтения.",
   "mount": "settings",
   "author": "YBX",
   "icon": "icon.png",

@@ -116,6 +116,10 @@ CrossPoint.registerPlugin(async (container, api) => {
       .ybx-card span { font-size:11px; color:var(--soft); }
       .ybx-card .ybx-bar { margin-top:auto; }
       .ybx-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+      .ybx-update { margin:12px 0 0; padding:10px 12px; border:1px solid var(--ink);
+        background:var(--plate); font-size:13px; }
+      .ybx-update strong { display:block; font-size:14px; }
+      .ybx-update span { display:block; margin-top:4px; color:var(--soft); font-size:12px; }
       .ybx button, .ybx a.ybx-btn { appearance:none; min-height:44px; padding:10px 16px;
         border:1px solid var(--control-border, var(--line)); border-radius:8px; background:transparent; color:var(--ink);
         font:inherit; font-weight:600; cursor:pointer; text-decoration:none;
@@ -213,6 +217,8 @@ CrossPoint.registerPlugin(async (container, api) => {
   let token = null;
   // Второе нажатие «Выгрузить статистику» перезаписывает уже лежащий файл.
   let statsArmed = false;
+  // Автопроверка релиза делается один раз за открытие страницы.
+  let updateChecked = false;
 
   const downloadFailed = (result) =>
     !result || result.error || !result.status || result.status < 200 || result.status >= 300;
@@ -843,6 +849,16 @@ CrossPoint.registerPlugin(async (container, api) => {
     updateButton.className = 'primary';
     updateButton.textContent = 'Обновить';
     updateButton.hidden = true;
+    // Баннер остаётся на экране, пока читатель решит обновить: в отличие от
+    // строки состояния его не перетирает следующая операция.
+    const updateBanner = document.createElement('p');
+    updateBanner.className = 'ybx-update';
+    updateBanner.hidden = true;
+    const updateBannerTitle = document.createElement('strong');
+    const updateBannerHint = document.createElement('span');
+    updateBannerHint.textContent = 'Обновите плагин здесь, или на ридере: '
+      + 'Home → Plugins → Plugin Hub → YBX → Обновить.';
+    updateBanner.append(updateBannerTitle, updateBannerHint);
     const signOutButton = document.createElement('button');
     signOutButton.type = 'button';
     signOutButton.textContent = 'Отвязать';
@@ -855,26 +871,33 @@ CrossPoint.registerPlugin(async (container, api) => {
       }
       return false;
     };
-    checkButton.onclick = async () => {
+    const showUpdate = (available) => {
+      updateBanner.hidden = !available;
+      updateButton.hidden = !available;
+      if (available) updateBannerTitle.textContent = 'Доступна версия ' + latest.version;
+    };
+    const checkForUpdate = async (announce) => {
       checkButton.disabled = true;
-      message('Проверяем обновление…');
+      if (announce) message('Проверяем обновление…');
       try {
         const res = await api.relay('GET', UPDATE_URL, {}, '');
         if (!res || res.status !== 200) throw new Error('HTTP ' + (res && res.status));
         latest = JSON.parse(res.body);
-        if (isNewer(latest.version, versionText)) {
-          updateButton.hidden = false;
-          message('Доступна версия ' + latest.version + '.', 'ok');
-        } else {
-          updateButton.hidden = true;
-          message('Установлена последняя версия (' + versionText + ').', 'ok');
+        const available = isNewer(latest.version, versionText);
+        showUpdate(available);
+        if (announce) {
+          message(available ? 'Доступна версия ' + latest.version + '.'
+            : 'Установлена последняя версия (' + versionText + ').', 'ok');
         }
       } catch (error) {
-        message('Не удалось проверить обновление: ' + error.message, 'err');
+        // Найденное раньше предложение обновить остаётся: сбой повторной
+        // проверки не отменяет уже скачанный релиз.
+        if (announce) message('Не удалось проверить обновление: ' + error.message, 'err');
       } finally {
         checkButton.disabled = false;
       }
     };
+    checkButton.onclick = () => checkForUpdate(true);
     const loadJsZip = async () => {
       if (window.JSZip) return window.JSZip;
       await new Promise((resolve, reject) => {
@@ -912,7 +935,8 @@ CrossPoint.registerPlugin(async (container, api) => {
           await api.writeFile(DIR + '/' + name, btoa(binary));
         }
         await fetch('/delete', { method: 'POST', body: new URLSearchParams({ path: zipPath }) });
-        updateButton.hidden = true;
+        showUpdate(false);
+        updateChecked = false;
         message('Обновлено до ' + latest.version + '. Перезагрузите страницу.', 'ok');
       } catch (error) {
         message('Не удалось обновить: ' + error.message, 'err');
@@ -938,8 +962,15 @@ CrossPoint.registerPlugin(async (container, api) => {
     actions.append(sleepButton, sleepCardButton, statsButton, syncButton, checkButton, updateButton, signOutButton);
     settings.appendChild(rows);
     settings.appendChild(statsHint);
+    settings.appendChild(updateBanner);
     settings.appendChild(actions);
     settingsWrap.appendChild(settings);
+    if (!updateChecked) {
+      updateChecked = true;
+      // Релиз проверяется сам при открытии страницы: читатель не должен
+      // догадываться о кнопке «Проверить обновление».
+      checkForUpdate(false);
+    }
   }
 
   function renderSignedOut() {

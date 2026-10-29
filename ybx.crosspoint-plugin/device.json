@@ -7,7 +7,7 @@
   },
   "browse": {
     "format": "json",
-    "url": "https://my.ybx.app/api/v1/crosspoint/catalog?shelf=reading&page={page}&limit={limit}&v=1.6.2",
+    "url": "https://my.ybx.app/api/v1/crosspoint/catalog?shelf=reading&page={page}&limit={limit}&v=1.6.3",
     "method": "GET",
     "headers": {
       "Authorization": "Bearer {token}"
@@ -23,33 +23,33 @@
       "detail_author": "author"
     },
     "search": {
-      "url": "https://my.ybx.app/api/v1/crosspoint/catalog/search?q={query}&page={page}&limit={limit}&v=1.6.2"
+      "url": "https://my.ybx.app/api/v1/crosspoint/catalog/search?q={query}&page={page}&limit={limit}&v=1.6.3"
     },
     "lists": [
       {
         "title": "Читаю",
-        "url": "https://my.ybx.app/api/v1/crosspoint/catalog?shelf=reading&page={page}&limit={limit}&v=1.6.2"
+        "url": "https://my.ybx.app/api/v1/crosspoint/catalog?shelf=reading&page={page}&limit={limit}&v=1.6.3"
       },
       {
         "title": "Хочу прочитать",
-        "url": "https://my.ybx.app/api/v1/crosspoint/catalog?shelf=to_read&page={page}&limit={limit}&v=1.6.2"
+        "url": "https://my.ybx.app/api/v1/crosspoint/catalog?shelf=to_read&page={page}&limit={limit}&v=1.6.3"
       },
       {
         "title": "Прочитано",
-        "url": "https://my.ybx.app/api/v1/crosspoint/catalog?shelf=done&page={page}&limit={limit}&v=1.6.2"
+        "url": "https://my.ybx.app/api/v1/crosspoint/catalog?shelf=done&page={page}&limit={limit}&v=1.6.3"
       },
       {
         "title": "Все книги",
-        "url": "https://my.ybx.app/api/v1/crosspoint/catalog?shelf=all&page={page}&limit={limit}&v=1.6.2"
+        "url": "https://my.ybx.app/api/v1/crosspoint/catalog?shelf=all&page={page}&limit={limit}&v=1.6.3"
       },
       {
         "title": "WB Книги",
-        "url": "https://my.ybx.app/api/v1/crosspoint/wb/catalog?page={page}&limit={limit}&v=1.6.2"
+        "url": "https://my.ybx.app/api/v1/crosspoint/wb/catalog?page={page}&limit={limit}&v=1.6.3"
       }
     ]
   },
   "download": {
-    "url": "https://my.ybx.app/api/v1/crosspoint/books/{id}/download?v=1.6.2",
+    "url": "https://my.ybx.app/api/v1/crosspoint/books/{id}/download?v=1.6.3",
     "method": "GET",
     "headers": {
       "Authorization": "Bearer {token}"
@@ -91,7 +91,7 @@
     "reader.open": {
       "request": {
         "method": "POST",
-        "url": "https://my.ybx.app/api/v1/crosspoint/events?v=1.6.2",
+        "url": "https://my.ybx.app/api/v1/crosspoint/events?v=1.6.3",
         "headers": {
           "Authorization": "Bearer {token}",
           "Content-Type": "application/json"
@@ -102,7 +102,7 @@
     "reader.exit": {
       "request": {
         "method": "POST",
-        "url": "https://my.ybx.app/api/v1/crosspoint/events?v=1.6.2",
+        "url": "https://my.ybx.app/api/v1/crosspoint/events?v=1.6.3",
         "headers": {
           "Authorization": "Bearer {token}",
           "Content-Type": "application/json"
@@ -113,7 +113,7 @@
     "reader.session": {
       "request": {
         "method": "POST",
-        "url": "https://my.ybx.app/api/v1/crosspoint/events?v=1.6.2",
+        "url": "https://my.ybx.app/api/v1/crosspoint/events?v=1.6.3",
         "headers": {
           "Authorization": "Bearer {token}",
           "Content-Type": "application/json"
@@ -125,7 +125,7 @@
     "book.downloaded": {
       "request": {
         "method": "POST",
-        "url": "https://my.ybx.app/api/v1/crosspoint/events?v=1.6.2",
+        "url": "https://my.ybx.app/api/v1/crosspoint/events?v=1.6.3",
         "headers": {
           "Authorization": "Bearer {token}",
           "Content-Type": "application/json"
@@ -135,7 +135,7 @@
     },
     "sleep.enter": {
       "download": {
-        "url": "https://my.ybx.app/api/v1/crosspoint/sleep-image?w={cfg.sleep_width}&h={cfg.sleep_height}&v=1.6.2",
+        "url": "https://my.ybx.app/api/v1/crosspoint/sleep-image?w={cfg.sleep_width}&h={cfg.sleep_height}&v=1.6.3",
         "headers": {
           "Authorization": "Bearer {token}"
         },

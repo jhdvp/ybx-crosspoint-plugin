@@ -225,14 +225,18 @@ CrossPoint.registerPlugin(async (container, api) => {
 
   // Same-origin листинг карты: нужен только чтобы не затирать файл молча.
   async function fileExists(dir, name) {
-    try {
-      const res = await fetch('/api/files?path=' + encodeURIComponent(dir), { cache: 'no-store' });
-      if (!res.ok) return false;
-      const entries = await res.json();
-      return Array.isArray(entries) && entries.some((entry) => entry && entry.name === name && !entry.isDirectory);
-    } catch {
-      return false;
+    // Never treat a failed SD listing as absence: doing so would bypass the
+    // confirmation before overwriting a user's exported reading statistics.
+    const res = await fetch('/api/files?path=' + encodeURIComponent(dir), { cache: 'no-store' });
+    if (!res.ok) throw new Error('не удалось проверить файлы на SD (HTTP ' + res.status + ')');
+    const entries = await res.json();
+    if (!Array.isArray(entries) || entries.some((entry) =>
+      !entry || typeof entry.name !== 'string' || typeof entry.isDirectory !== 'boolean')) {
+      throw new Error('некорректный список файлов на SD');
     }
+    // FAT can resolve upper-case and trailing-dot aliases to the same file.
+    const fatName = (value) => value.replace(/^ +/, '').replace(/[. ]+$/, '').toLowerCase();
+    return entries.some((entry) => !entry.isDirectory && fatName(entry.name) === fatName(name));
   }
 
   // Проверяем саму прошивку, а не только плагин: страница Import Statistics
@@ -683,16 +687,25 @@ CrossPoint.registerPlugin(async (container, api) => {
     const syncButton = document.createElement('button');
     syncButton.type = 'button';
     syncButton.className = 'primary';
-    syncButton.textContent = synced ? 'KOReader Sync настроен' : 'Настроить KOReader Sync';
-    syncButton.disabled = !token || synced;
+    syncButton.textContent = synced ? 'Обновить ключ KOReader Sync' : 'Настроить KOReader Sync';
+    syncButton.disabled = !token;
     syncButton.onclick = async () => {
       syncButton.disabled = true;
       try {
         const latest = await readSettings();
         if (pointsToYbx(latest)) {
+          // Firmware intentionally masks koPassword in GET /api/settings.
+          // After a new QR login the old KOSync key may have expired or been
+          // revoked even though koServerUrl still points to YBX.
+          if (!window.confirm('Обновить ключ KOReader Sync для текущего входа YBX?\n\n'
+              + 'Будет изменён только пароль синхронизации. Прогресс чтения, сервер и другие настройки останутся без изменений.')) {
+            message('Обновление ключа отменено. Настройки не изменены.');
+            return;
+          }
+          await writeSettings({ koPassword: token.access_token });
           syncValue.textContent = 'включён';
-          syncButton.textContent = 'KOReader Sync настроен';
-          message('Синхронизация с YBX уже настроена. Настройки не изменены.', 'ok');
+          syncButton.textContent = 'Обновить ключ KOReader Sync';
+          message('Ключ KOReader Sync обновлён для текущего входа YBX.', 'ok');
           return;
         }
         let server = 'не указан';
@@ -721,11 +734,14 @@ CrossPoint.registerPlugin(async (container, api) => {
           koSendMetadata: 1,
         });
         syncValue.textContent = 'включён';
-        syncButton.textContent = 'KOReader Sync настроен';
+        syncButton.textContent = 'Обновить ключ KOReader Sync';
         message('Готово: позиция синхронизируется через YBX.', 'ok');
       } catch (error) {
         message('Не удалось настроить синхронизацию: ' + error.message, 'err');
-        syncButton.disabled = false;
+      } finally {
+        // After confirmation or cancellation, this action remains available
+        // for future QR re-logins and key rotations.
+        syncButton.disabled = !token;
       }
     };
     const sleepMode = Number(settingValue(current, 'sleepScreen'));
@@ -1018,15 +1034,41 @@ CrossPoint.registerPlugin(async (container, api) => {
     };
     signOutButton.onclick = async () => {
       signOutButton.disabled = true;
+      let revoked = false;
+      try {
+        // Revocation is server-side and covers *all* cp_ credentials for the
+        // current reader, including other tokens previously issued for it.
+        // Never claim a remote logout based on merely clearing SD files.
+        const result = await api.relay('POST', API + '/api/v1/crosspoint/auth/revoke',
+          { Authorization: 'Bearer ' + token.access_token }, '');
+        if (!result || (result.status !== 204 && result.status !== 401)) {
+          throw new Error('сервер не подтвердил отзыв ключа (HTTP ' + (result && result.status) + ')');
+        }
+        // 401 means the supplied key is already invalid; do not misreport it
+        // as a successful revocation of every other previously issued key.
+        revoked = result.status === 204;
+      } catch (error) {
+        if (!window.confirm('Не удалось отозвать ключ на сервере: ' + error.message
+          + '\n\nУдалить локальную привязку всё равно? Ранее выданные ключи могут остаться активными. '
+          + 'Для полного отключения удалите устройство в кабинете YBX.')) {
+          message('Отвязка отменена: для отзыва ключа необходимо подключение к YBX.', 'err');
+          signOutButton.disabled = false;
+          return;
+        }
+      }
       try {
         await writeJson(TOKEN_PATH, {});
         await writeJson(LEGACY_TOKEN_PATH, {}).catch(() => {});
         if (pointsToYbx(await readSettings())) await writeSettings(SYNC_OFF);
         token = null;
         renderSignedOut();
-        message('Устройство отвязано. Чтобы подключить заново — войдите на ридере по QR-коду.', 'ok');
+        message(revoked
+          ? 'Доступ на сервере отозван, локальная привязка удалена. Для нового входа используйте QR-код.'
+          : 'Локальная привязка удалена. Полный отзыв доступа не подтверждён — удалите устройство в кабинете YBX.',
+          revoked ? 'ok' : 'err');
       } catch (error) {
-        message('Не удалось отвязать: ' + error.message, 'err');
+        message('Ключ на сервере ' + (revoked ? 'отозван' : 'не подтверждён') +
+          ', но очистить локальные настройки не удалось: ' + error.message, 'err');
       } finally {
         signOutButton.disabled = false;
       }

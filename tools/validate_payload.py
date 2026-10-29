@@ -68,9 +68,23 @@ def validate(directory: Path = PAYLOAD, canonical: Path | None = None) -> list[s
         errors.append("firmware family crosspoint missing")
     if not isinstance(compatible.get("plugin_api_min"), int):
         errors.append("invalid minimum plugin API")
-    if (device.get("browse", {}).get("lists_url") and
-            "catalog.lists.auth" not in compatible.get("requires", [])):
-        errors.append("dynamic lists require catalog.lists.auth")
+    # This public payload must remain installable on upstream CrossPoint.
+    # Fork-only connected-source catalogs live in the YBX Reader firmware.
+    browse = device.get("browse", {})
+    if browse.get("lists_url") or "catalog.lists.auth" in compatible.get("requires", []):
+        errors.append("fork-only authenticated dynamic lists must not ship in public profile")
+    if not browse.get("lists"):
+        errors.append("stock CrossPoint public catalog must have static lists")
+    versioned = [browse.get("url", ""), browse.get("search", {}).get("url", ""),
+                 *[entry.get("url", "") for entry in browse.get("lists", [])],
+                 device.get("download", {}).get("url", "")]
+    for event in device.get("events", {}).values():
+        if "request" in event:
+            versioned.append(event["request"].get("url", ""))
+        if "download" in event:
+            versioned.append(event["download"].get("url", ""))
+    if any("v=" + version not in url for url in versioned):
+        errors.append("each catalog, download, and event URL must report the plugin version")
     if canonical is not None:
         other = load(canonical, "manifest.json", errors)
         if other.get("version") != version or other.get("files") != files:

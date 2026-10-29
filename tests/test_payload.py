@@ -29,6 +29,29 @@ class PayloadContractTests(unittest.TestCase):
             (replica / "manifest.json").write_text(json.dumps(manifest))
             self.assertTrue(any("unsafe/private file name" in err for err in validate(replica)))
 
+    def test_stock_profile_cannot_require_fork_capabilities(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            replica = Path(tmp) / "plugin"
+            shutil.copytree(PAYLOAD, replica)
+            manifest_path = replica / "manifest.json"
+            manifest = json.loads(manifest_path.read_text())
+            manifest["compatibility"]["requires"] = ["catalog.lists.auth"]
+            manifest_path.write_text(json.dumps(manifest))
+            self.assertTrue(any("fork-only" in err for err in validate(replica)))
+
+    def test_missing_request_version_telemetry_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            replica = Path(tmp) / "plugin"
+            shutil.copytree(PAYLOAD, replica)
+            device_path = replica / "device.json"
+            device = json.loads(device_path.read_text())
+            device["events"]["reader.session"]["request"]["url"] = (
+                "https://my.ybx.app/api/v1/crosspoint/events"
+            )
+            device_path.write_text(json.dumps(device))
+            self.assertTrue(any("each catalog, download, and event URL" in err
+                                for err in validate(replica)))
+
     def test_rejects_version_mismatch(self):
         with tempfile.TemporaryDirectory() as tmp:
             replica = Path(tmp) / "plugin"

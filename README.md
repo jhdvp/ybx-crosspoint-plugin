@@ -38,6 +38,16 @@ The public workflow checks structural validity, while the private server
 must perform cross-repository byte-parity. No private GitHub token should be
 added to public pull-request workflows.
 
-Ordinary Plugin Hub updates overwrite declared package files (including
-config.json) while preserving unlisted token.json. Complete removal deletes
-the plugin directory. Back up configuration before changing install channels.
+Current upstream Plugin Hub (PR #8 merged 2026-10-29) preserves an existing
+root config.json on update/reinstall and rejects any token.json package entry.
+Older Hub installs may still overwrite config.json; complete uninstall removes
+the plugin directory. Back up settings before changing installation channels.
+
+For v1.6.3, the YBX WebUI unlink action first revokes all tokens of that reader
+on the server; an explicitly confirmed offline-only cleanup (including HTTP 401)
+is not server revocation. A disconnected marker in root token.json prevents
+legacy token.json fallback from silently signing the reader back in.
+If settings or legacy credentials could not be cleared, WebUI reports partial
+cleanup. After a new QR login, use "Обновить ключ KOReader Sync" to refresh
+the KOSync password without replacing the sync server or other settings.
+An unavailable settings API never authorizes resetting unknown KOSync options.

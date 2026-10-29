@@ -13,6 +13,11 @@ jobs:
       - uses: actions/checkout@v4
       - run: python3 tools/validate_payload.py
       - run: python3 -m unittest discover -s tests -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check ybx.crosspoint-plugin/plugin.js
+      - run: node --test tests/test_plugin_lifecycle.mjs
       # The source YBX Server repository is PRIVATE. Cross-repository
       # verification runs in the private server CI, never with a private
       # repository token in this PUBLIC repository's pull-request workflow.

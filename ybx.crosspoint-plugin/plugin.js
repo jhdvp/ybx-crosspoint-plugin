@@ -910,13 +910,93 @@ CrossPoint.registerPlugin(async (container, api) => {
       });
       return window.JSZip;
     };
+    // Every writable file must be present and backed up before the first
+    // mutation. Plugin Hub may still overwrite config.json independently;
+    // this in-page updater deliberately preserves it and token.json.
+    const applyUpdateArchive = async (archive, expectedVersion) => {
+      const filenames = ['manifest.json', 'device.json', 'plugin.json', 'plugin.js',
+        'config.json', 'README.md', 'icon.png'];
+      const allowed = new Set(filenames);
+      const zipFiles = Object.values(archive.files).filter((entry) => !entry.dir);
+      if (zipFiles.length !== filenames.length || zipFiles.some((entry) =>
+        !entry.name.startsWith('ybx/') || !allowed.has(entry.name.slice(4)))) {
+        throw new Error('архив содержит неожиданные или отсутствующие файлы');
+      }
+      const bytes = new Map();
+      for (const entry of zipFiles) {
+        const name = entry.name.slice(4);
+        if (bytes.has(name)) throw new Error('дублирование файла ' + name);
+        const content = await entry.async('uint8array');
+        if (!content.length || content.length > 256 * 1024) {
+          throw new Error('недопустимый размер файла ' + name);
+        }
+        bytes.set(name, content);
+      }
+      if (filenames.some((name) => !bytes.has(name))) throw new Error('неполный архив');
+      const decode = (name) => JSON.parse(new TextDecoder().decode(bytes.get(name)));
+      const manifest = decode('manifest.json');
+      const pluginMeta = decode('plugin.json');
+      if (manifest.name !== 'ybx' || manifest.version !== expectedVersion ||
+          pluginMeta.id !== 'ybx' || pluginMeta.version !== expectedVersion ||
+          JSON.stringify(manifest.files) !== JSON.stringify(filenames) ||
+          JSON.stringify(pluginMeta.files) !== JSON.stringify(filenames) ||
+          manifest.compatibility?.requires?.length) {
+        throw new Error('несовместимая версия или структура плагина');
+      }
+      // A reader must never run a 1.7.x connected-source manifest on stock
+      // CrossPoint firmware, even if a release endpoint is misconfigured.
+      const device = decode('device.json');
+      if (device.browse?.lists_url || !device.browse?.lists?.length ||
+          device.auth?.type !== 'device_code') {
+        throw new Error('архив рассчитан на другую прошивку');
+      }
+      const writable = filenames.filter((name) => name !== 'config.json');
+      const backup = new Map();
+      for (const name of writable) {
+        const old = await fetch('/download?path=' + encodeURIComponent(DIR + '/' + name));
+        if (!old.ok) throw new Error('резервная копия ' + name + ': HTTP ' + old.status);
+        backup.set(name, new Uint8Array(await old.arrayBuffer()));
+      }
+      const encode = (data) => {
+        let binary = '';
+        for (let i = 0; i < data.length; i += 8192) {
+          binary += String.fromCharCode(...data.subarray(i, i + 8192));
+        }
+        return btoa(binary);
+      };
+      // Metadata is replaced last. Any failed write is also rolled back:
+      // the host might have written some bytes before returning an error.
+      const order = writable.filter((name) => name !== 'manifest.json' && name !== 'plugin.json');
+      order.push('plugin.json', 'manifest.json');
+      const touched = [];
+      try {
+        for (const name of order) {
+          touched.push(name);
+          await api.writeFile(DIR + '/' + name, encode(bytes.get(name)));
+        }
+      } catch (error) {
+        const failures = [];
+        for (const name of touched.reverse()) {
+          try { await api.writeFile(DIR + '/' + name, encode(backup.get(name))); }
+          catch (rollbackError) { failures.push(name); }
+        }
+        throw new Error('запись обновления: ' + error.message +
+          (failures.length ? '; восстановление не удалось: ' + failures.join(', ') : '; старые файлы восстановлены'));
+      }
+    };
     updateButton.onclick = async () => {
       if (!latest) return;
       updateButton.disabled = true;
       message('Скачиваем обновление…');
       const zipPath = DIR + '/update.zip';
       try {
-        const download = await api.fetchToSd(latest.url, zipPath);
+        const url = new URL(latest.url);
+        if (url.protocol !== 'https:' || !['ybx.app', 'my.ybx.app'].includes(url.hostname) ||
+            url.pathname !== '/crosspoint-plugin/ybx-plugin.zip' ||
+            url.username || url.password || url.search || url.hash) {
+          throw new Error('источник обновления не принадлежит YBX');
+        }
+        const download = await api.fetchToSd(url.href, zipPath);
         if (download.error || (download.status && (download.status < 200 || download.status >= 300))) {
           throw new Error('скачивание: HTTP ' + (download.status || download.error));
         }
@@ -924,24 +1004,15 @@ CrossPoint.registerPlugin(async (container, api) => {
         const res = await fetch('/download?path=' + encodeURIComponent(zipPath));
         if (!res.ok) throw new Error('чтение архива: HTTP ' + res.status);
         const archive = await JSZip.loadAsync(await res.arrayBuffer());
-        const allowed = /^(manifest\.json|device\.json|plugin\.json|plugin\.js|README\.md|icon\.png)$/;
-        const entries = Object.values(archive.files)
-          .filter((entry) => !entry.dir && allowed.test(entry.name.replace(/^ybx\//, '')));
-        if (!entries.length) throw new Error('пустой архив');
-        for (const entry of entries) {
-          const name = entry.name.replace(/^ybx\//, '');
-          const bytes = await entry.async('uint8array');
-          let binary = '';
-          for (const byte of bytes) binary += String.fromCharCode(byte);
-          await api.writeFile(DIR + '/' + name, btoa(binary));
-        }
-        await fetch('/delete', { method: 'POST', body: new URLSearchParams({ path: zipPath }) });
+        await applyUpdateArchive(archive, latest.version);
         showUpdate(false);
         updateChecked = false;
         message('Обновлено до ' + latest.version + '. Перезагрузите страницу.', 'ok');
       } catch (error) {
         message('Не удалось обновить: ' + error.message, 'err');
       } finally {
+        await fetch('/delete', { method: 'POST', body: new URLSearchParams({ path: zipPath }) })
+          .catch(() => {});
         updateButton.disabled = false;
       }
     };

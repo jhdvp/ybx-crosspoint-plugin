@@ -295,6 +295,7 @@ CrossPoint.registerPlugin(async (container, api) => {
     if (!res || res.status < 200 || res.status >= 300) {
       const error = new Error('HTTP ' + (res && res.status));
       error.status = res && res.status;
+      try { error.detail = JSON.parse(res.body).detail; } catch (ignored) {}
       throw error;
     }
     return JSON.parse(res.body);
@@ -1010,7 +1011,14 @@ CrossPoint.registerPlugin(async (container, api) => {
       await loadProfile();
       message('Ридер подключён к YBX. Каталог — Home → Plugins → YBX.', 'ok');
     } catch (error) {
-      if (error.status === 401 || error.status === 409) {
+      if (error.status === 409) {
+        // The plugin token is fine: only the books consent is missing, so the
+        // reader must not be told to sign in again.
+        const detail = error.detail || {};
+        message(typeof detail.message === 'string' && detail.message
+          ? detail.message + ' Затем обновите эту страницу.'
+          : 'Подключите книги в кабинете YBX и обновите эту страницу.', 'err');
+      } else if (error.status === 401) {
         message('Сессия плагина недействительна. Откройте Home → Plugins → YBX и войдите заново.', 'err');
         renderSignedOut();
       } else {

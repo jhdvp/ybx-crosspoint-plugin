@@ -1,0 +1,18 @@
+name: Validate CrossPoint Plugin
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/validate_payload.py
+      - run: python3 -m unittest discover -s tests -v
+      # The source YBX Server repository is PRIVATE. Cross-repository
+      # verification runs in the private server CI, never with a private
+      # repository token in this PUBLIC repository's pull-request workflow.

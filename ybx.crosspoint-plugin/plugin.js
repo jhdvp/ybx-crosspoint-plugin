@@ -186,16 +186,27 @@ CrossPoint.registerPlugin(async (container, api) => {
   };
   const readPluginToken = async () => {
     const current = await readJson(TOKEN_PATH);
+    // An explicit local logout must win over a stale legacy credential,
+    // even if firmware no longer permits writes into the legacy directory.
+    if (current?.disconnected === true) return null;
     if (current?.access_token) return current;
     const legacy = await readJson(LEGACY_TOKEN_PATH);
     return legacy?.access_token ? legacy : current;
   };
   const writeJson = (path, value) => api.writeFile(path, b64(JSON.stringify(value)));
-  const readSettings = async () => {
+  const readSettings = async ({ required = false } = {}) => {
     try {
-      const res = await fetch('/api/settings');
-      return res.ok ? await res.json() : [];
-    } catch { return []; }
+      const res = await fetch('/api/settings', { cache: 'no-store' });
+      if (!res.ok) throw new Error('settings HTTP ' + res.status);
+      const settings = await res.json();
+      if (!Array.isArray(settings)) throw new Error('некорректный ответ настроек');
+      return settings;
+    } catch (error) {
+      // Rendering may fall back to "not configured"; a button that changes
+      // the reader's settings must instead refuse to overwrite unknown state.
+      if (required) throw error;
+      return [];
+    }
   };
   const writeSettings = async (value) => {
     const res = await fetch('/api/settings', {
@@ -692,7 +703,7 @@ CrossPoint.registerPlugin(async (container, api) => {
     syncButton.onclick = async () => {
       syncButton.disabled = true;
       try {
-        const latest = await readSettings();
+        const latest = await readSettings({ required: true });
         if (pointsToYbx(latest)) {
           // Firmware intentionally masks koPassword in GET /api/settings.
           // After a new QR login the old KOSync key may have expired or been
@@ -1041,12 +1052,12 @@ CrossPoint.registerPlugin(async (container, api) => {
         // Never claim a remote logout based on merely clearing SD files.
         const result = await api.relay('POST', API + '/api/v1/crosspoint/auth/revoke',
           { Authorization: 'Bearer ' + token.access_token }, '');
-        if (!result || (result.status !== 204 && result.status !== 401)) {
+        // A 401 is NOT proof that other previously issued keys were revoked.
+        // Treat it exactly like a network failure: ask before local-only logout.
+        if (!result || result.status !== 204) {
           throw new Error('сервер не подтвердил отзыв ключа (HTTP ' + (result && result.status) + ')');
         }
-        // 401 means the supplied key is already invalid; do not misreport it
-        // as a successful revocation of every other previously issued key.
-        revoked = result.status === 204;
+        revoked = true;
       } catch (error) {
         if (!window.confirm('Не удалось отозвать ключ на сервере: ' + error.message
           + '\n\nУдалить локальную привязку всё равно? Ранее выданные ключи могут остаться активными. '
@@ -1057,15 +1068,37 @@ CrossPoint.registerPlugin(async (container, api) => {
         }
       }
       try {
-        await writeJson(TOKEN_PATH, {});
-        await writeJson(LEGACY_TOKEN_PATH, {}).catch(() => {});
-        if (pointsToYbx(await readSettings())) await writeSettings(SYNC_OFF);
+        const cleanupWarnings = [];
+        // Reading settings must not silently turn a network/SD error into
+        // "KOSync not configured". Clear its credentials when possible.
+        try {
+          const response = await fetch('/api/settings', { cache: 'no-store' });
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          const settings = await response.json();
+          if (!Array.isArray(settings)) throw new Error('некорректный ответ');
+          if (pointsToYbx(settings)) await writeSettings(SYNC_OFF);
+        } catch (error) {
+          cleanupWarnings.push('не удалось очистить настройки KOReader Sync: ' + error.message);
+        }
+
+        // Mark explicit logout. The legacy fallback MUST NOT reactivate an
+        // old token if this device cannot write into legacy plugin-data.
+        await writeJson(TOKEN_PATH, { disconnected: true });
+        const legacy = await readJson(LEGACY_TOKEN_PATH);
+        if (legacy?.access_token) {
+          try {
+            await writeJson(LEGACY_TOKEN_PATH, { disconnected: true });
+          } catch (error) {
+            cleanupWarnings.push('не удалось очистить старый файл токена');
+          }
+        }
         token = null;
         renderSignedOut();
-        message(revoked
+        const resultMessage = revoked
           ? 'Доступ на сервере отозван, локальная привязка удалена. Для нового входа используйте QR-код.'
-          : 'Локальная привязка удалена. Полный отзыв доступа не подтверждён — удалите устройство в кабинете YBX.',
-          revoked ? 'ok' : 'err');
+          : 'Локальная привязка удалена. Полный отзыв доступа не подтверждён — удалите устройство в кабинете YBX.';
+        message(resultMessage + (cleanupWarnings.length ? ' ' + cleanupWarnings.join('; ') + '.' : ''),
+          revoked && !cleanupWarnings.length ? 'ok' : 'err');
       } catch (error) {
         message('Ключ на сервере ' + (revoked ? 'отозван' : 'не подтверждён') +
           ', но очистить локальные настройки не удалось: ' + error.message, 'err');

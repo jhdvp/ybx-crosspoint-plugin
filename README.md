@@ -44,6 +44,10 @@ Older Hub installs may still overwrite config.json; complete uninstall removes
 the plugin directory. Back up settings before changing installation channels.
 
 For v1.6.3, the YBX WebUI unlink action first revokes all tokens of that reader
-on the server; an explicitly confirmed offline-only cleanup is not server
-revocation. After a new QR login, use "Обновить ключ KOReader Sync" to refresh
+on the server; an explicitly confirmed offline-only cleanup (including HTTP 401)
+is not server revocation. A disconnected marker in root token.json prevents
+legacy token.json fallback from silently signing the reader back in.
+If settings or legacy credentials could not be cleared, WebUI reports partial
+cleanup. After a new QR login, use "Обновить ключ KOReader Sync" to refresh
 the KOSync password without replacing the sync server or other settings.
+An unavailable settings API never authorizes resetting unknown KOSync options.

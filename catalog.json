@@ -6,7 +6,7 @@
       "title": "YBX",
       "description": "Библиотеки Яндекс Книг и WB Книг в YBX. Скачивание EPUB и статистика чтения.",
       "author": "YBX",
-      "version": "1.6.0",
+      "version": "1.6.4",
       "base": "https://raw.githubusercontent.com/jhdvp/ybx-crosspoint-plugin/main/ybx.crosspoint-plugin/",
       "files": [
         "manifest.json",

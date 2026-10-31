@@ -683,6 +683,12 @@ CrossPoint.registerPlugin(async (container, api) => {
     syncValue.textContent = synced ? 'включён' : 'выключен';
     syncRow.append(syncLabel, syncValue);
     rows.appendChild(sleepRow);
+    // Shown only while the mode that also draws the card is selected: it is the
+    // answer to "выключил, а карточка всё равно появляется".
+    const sleepHint = document.createElement('p');
+    sleepHint.className = 'ybx-hint';
+    sleepHint.hidden = true;
+    rows.appendChild(sleepHint);
     const sleepHelp = document.createElement('details');
     const sleepHelpTitle = document.createElement('summary');
     sleepHelpTitle.textContent = 'Как обновляется экран сна';
@@ -755,24 +761,38 @@ CrossPoint.registerPlugin(async (container, api) => {
         syncButton.disabled = !token;
       }
     };
-    const sleepMode = Number(settingValue(current, 'sleepScreen'));
-    sleepValue.textContent = sleepMode === 2 ? 'статистика YBX' : 'другой режим';
+    // The card is the firmware's own «Свой» mode showing /sleep.bmp, so the
+    // switch works in both directions: on writes «Свой», off writes «Обложка»
+    // (the mode a person expects to see back). The neighbouring «Обложка + Свой»
+    // draws the card whenever sleep is not taken from a book — that is the mode
+    // behind «выключил, а оно всё равно включается», so it is named and explained
+    // here instead of being reported as an anonymous "другой режим".
+    const SLEEP_MODES = ['Тёмный', 'Светлый', 'Свой', 'Обложка', 'Обложка + Свой',
+                         'Нет', 'Быстрое возобновление', 'Прозрачный'];
+    const CARD_MODE = 2;         // CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM
+    const COVER_MODE = 3;        // CrossPointSettings::SLEEP_SCREEN_MODE::COVER
+    const COVER_CUSTOM_MODE = 4; // ...::COVER_CUSTOM — the card when sleep is not from a book
+    let sleepMode = Number(settingValue(current, 'sleepScreen'));
+    // «Обложка + Свой» counts as on: the card does appear there, and a person who
+    // believes it is off needs the switch to turn it off, not to reinforce it.
+    const sleepShowsCard = () => sleepMode === CARD_MODE || sleepMode === COVER_CUSTOM_MODE;
     const sleepButton = document.createElement('button');
     sleepButton.type = 'button';
     sleepButton.className = 'primary';
-    sleepButton.textContent = sleepMode === 2 ? 'Экран сна включён' : 'Показывать статистику на сне';
-    sleepButton.disabled = sleepMode === 2;
     sleepButton.onclick = async () => {
+      const turningOn = !sleepShowsCard();
       sleepButton.disabled = true;
-      message('Включаем экран сна…');
+      message(turningOn ? 'Включаем экран сна…' : 'Выключаем экран сна…');
       try {
-        await writeSettings({ sleepScreen: 2 });
-        sleepValue.textContent = 'статистика YBX';
-        sleepButton.textContent = 'Экран сна включён';
-        message('Экран сна включён. Перед засыпанием ридер попробует загрузить свежую статистику через Wi-Fi.', 'ok');
+        await writeSettings({ sleepScreen: turningOn ? CARD_MODE : COVER_MODE });
+        sleepMode = turningOn ? CARD_MODE : COVER_MODE;
+        paintSleepState();
+        message(turningOn
+          ? 'Экран сна включён. Перед засыпанием ридер попробует загрузить свежую статистику через Wi-Fi.'
+          : 'Статистика на сне выключена: ридер снова покажет обложку книги.', 'ok');
       } catch (error) {
-        message('Не удалось включить экран сна: ' + error.message, 'err');
-        sleepButton.disabled = false;
+        message('Не удалось изменить экран сна: ' + error.message, 'err');
+        paintSleepState();
       }
     };
 
@@ -780,7 +800,6 @@ CrossPoint.registerPlugin(async (container, api) => {
     sleepCardButton.type = 'button';
     sleepCardButton.className = 'primary';
     sleepCardButton.textContent = 'Обновить карточку сна';
-    sleepCardButton.disabled = !token || sleepMode !== 2;
     sleepCardButton.onclick = async () => {
       sleepCardButton.disabled = true;
       message('Загружаем карточку сна…');
@@ -790,9 +809,23 @@ CrossPoint.registerPlugin(async (container, api) => {
       } catch (error) {
         message('Не удалось обновить карточку: ' + error.message, 'err');
       } finally {
-        sleepCardButton.disabled = !token || sleepMode !== 2;
+        paintSleepState();
       }
     };
+
+    const paintSleepState = () => {
+      const on = sleepShowsCard();
+      sleepValue.textContent = SLEEP_MODES[sleepMode] || 'не выбран';
+      sleepButton.textContent = on ? 'Выключить статистику на сне' : 'Включать статистику на сне';
+      sleepButton.disabled = false;
+      sleepCardButton.disabled = !token || !on;
+      sleepHint.hidden = sleepMode !== 4;
+      sleepHint.textContent = sleepHint.hidden
+        ? ''
+        : 'Сейчас «Обложка + Свой»: карточка появится, когда сон не из книги. '
+          + 'Выключите статистику, чтобы всегда видеть обложку.';
+    };
+    paintSleepState();
 
     const statsHint = document.createElement('details');
     statsHint.hidden = true;

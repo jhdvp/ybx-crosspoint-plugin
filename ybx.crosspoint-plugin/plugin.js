@@ -228,7 +228,7 @@ CrossPoint.registerPlugin(async (container, api) => {
   const settingValue = (settings, key) => settings.find((item) => item.key === key)?.value;
   // These endpoints belong to the same service but NOT the same auth scheme:
   // account KOSync uses an account/device key; the plugin endpoint uses the cp_
-  // token or, since 1.6.8, the narrow kosync_ key written by the plugin itself.
+  // token or, since 1.6.9, the narrow kosync_ key written by the plugin itself.
   const syncMode = (settings) => {
     const address = settingValue(settings, 'koServerUrl');
     if (typeof address !== 'string' || !address) return 'other';
@@ -741,7 +741,7 @@ CrossPoint.registerPlugin(async (container, api) => {
   const COVER_MODE = 3;        // CrossPointSettings::SLEEP_SCREEN_MODE::COVER
   const COVER_CUSTOM_MODE = 4; // ...::COVER_CUSTOM — the card when sleep is not from a book
   // Версию в адресах берём из device.json ридера: сборка 1.7.0 подставляет свою.
-  const handlerVersion = (device) => (String(device?.download?.url || '').match(/[?&]v=([^&]+)/) || [])[1] || '1.6.8';
+  const handlerVersion = (device) => (String(device?.download?.url || '').match(/[?&]v=([^&]+)/) || [])[1] || '1.6.9';
   const sleepRequestHandler = (v) => ({
     method: 'POST',
     url: API + '/api/v1/crosspoint/events?v=' + v,
@@ -855,7 +855,7 @@ CrossPoint.registerPlugin(async (container, api) => {
     return outcome;
   }
 
-  // До 1.6.8 карточка скачивалась всегда. Если обработчик теперь выключен, а в
+  // До 1.6.9 карточка скачивалась всегда. Если обработчик теперь выключен, а в
   // слоте всё ещё наша карточка, убираем её один раз при открытии страницы.
   async function reconcileSleepCard() {
     if (!token) return null;

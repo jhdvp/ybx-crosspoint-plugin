@@ -514,6 +514,7 @@ function bmpCard(width, height) {
     bytes[at + 2] = value >> 16 & 255; bytes[at + 3] = value >> 24 & 255; };
   bytes[0] = 0x42; bytes[1] = 0x4d; put(2, size); put(10, 62); put(18, width); put(22, height);
   bytes[28] = 1;
+  bytes.set([0x59, 0x42, 0x58, 0x31], 6);  // «YBX1», the server's mark
   return bytes;
 }
 
@@ -556,8 +557,7 @@ test('turning the card off restores a saved picture and never deletes a foreign 
   assert.equal(await off.ctx.setSleepCard(false, 2), 'restored');
   assert.deepEqual([...off.files.get('/sleep.bmp')], [...theirs]);
   assert.deepEqual(off.deletes, []);
-  assert.ok(off.device.events['sleep.enter'].request);
-  assert.match(off.device.events['sleep.enter'].request.url, /v=1\.7\.0/);
+  assert.equal('sleep.enter' in off.device.events, false);
 
   const foreign = await slotWorld({ slot: theirs, handler: 'download' });
   assert.equal(await foreign.ctx.setSleepCard(false, 3), 'kept');
@@ -605,4 +605,16 @@ test('an empty server is named as the CrossPoint Sync cloud and its one-way mirr
   await host.context.syncButton.onclick();
   assert.match(host.confirmations[0], /облако CrossPoint Sync/);
   assert.match(host.confirmations[0], /только в одну сторону/);
+});
+
+test('a same-size monochrome wallpaper without the YBX mark is never treated as ours', async () => {
+  const lookalike = bmpCard(480, 800);
+  lookalike.set([0, 0, 0, 0], 6);
+  const world = await slotWorld({ slot: lookalike });
+  assert.equal(world.ctx.ownsSleepSlot(lookalike), false);
+  await world.ctx.reconcileSleepCard();
+  assert.deepEqual(world.deletes, []);
+  const off = await slotWorld({ slot: lookalike, handler: 'download' });
+  assert.equal(await off.ctx.setSleepCard(false, 2), 'kept');
+  assert.deepEqual(off.deletes, []);
 });

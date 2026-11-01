@@ -228,7 +228,7 @@ CrossPoint.registerPlugin(async (container, api) => {
   const settingValue = (settings, key) => settings.find((item) => item.key === key)?.value;
   // These endpoints belong to the same service but NOT the same auth scheme:
   // account KOSync uses an account/device key; the plugin endpoint uses the cp_
-  // token or, since 1.6.9, the narrow kosync_ key written by the plugin itself.
+  // token or, since 1.6.10, the narrow kosync_ key written by the plugin itself.
   const syncMode = (settings) => {
     const address = settingValue(settings, 'koServerUrl');
     if (typeof address !== 'string' || !address) return 'other';
@@ -741,13 +741,7 @@ CrossPoint.registerPlugin(async (container, api) => {
   const COVER_MODE = 3;        // CrossPointSettings::SLEEP_SCREEN_MODE::COVER
   const COVER_CUSTOM_MODE = 4; // ...::COVER_CUSTOM — the card when sleep is not from a book
   // Версию в адресах берём из device.json ридера: сборка 1.7.0 подставляет свою.
-  const handlerVersion = (device) => (String(device?.download?.url || '').match(/[?&]v=([^&]+)/) || [])[1] || '1.6.9';
-  const sleepRequestHandler = (v) => ({
-    method: 'POST',
-    url: API + '/api/v1/crosspoint/events?v=' + v,
-    headers: { Authorization: 'Bearer {token}', 'Content-Type': 'application/json' },
-    body: '{"event":"sleep.enter","event_id":"{event.id}","ts":{event.ts}}',
-  });
+  const handlerVersion = (device) => (String(device?.download?.url || '').match(/[?&]v=([^&]+)/) || [])[1] || '1.6.10';
   const sleepDownloadHandler = (v) => ({
     url: API + '/api/v1/crosspoint/sleep-image?w={cfg.sleep_width}&h={cfg.sleep_height}&v=' + v,
     headers: { Authorization: 'Bearer {token}' },
@@ -764,8 +758,12 @@ CrossPoint.registerPlugin(async (container, api) => {
     }
     return btoa(binary);
   };
+  // The server writes «YBX1» into the BMP header's reserved words: only a file
+  // carrying that mark is ours. A same-size wallpaper without it — including a
+  // card from a version before 1.6.10 — is never removed automatically.
   const looksLikeSleepCard = (bytes, width, height) => {
     if (!bytes || bytes.length < 62 || bytes[0] !== 0x42 || bytes[1] !== 0x4d) return false;
+    if (bytes[6] !== 0x59 || bytes[7] !== 0x42 || bytes[8] !== 0x58 || bytes[9] !== 0x31) return false;
     const dword = (at) => (bytes[at] | bytes[at + 1] << 8 | bytes[at + 2] << 16 | bytes[at + 3] << 24);
     return dword(2) === bytes.length && dword(10) === 62 && dword(28) === 1
       && Math.abs(dword(18)) === width && Math.abs(dword(22)) === height
@@ -796,9 +794,9 @@ CrossPoint.registerPlugin(async (container, api) => {
   const sleepHandlerOn = (device) => Boolean(device?.events?.['sleep.enter']?.download);
   async function writeSleepHandler(device, enabled) {
     const v = handlerVersion(device);
-    device.events['sleep.enter'] = enabled
-      ? { download: sleepDownloadHandler(v) }
-      : { request: sleepRequestHandler(v) };
+    // Off means no sleep.enter handler at all: no network work before sleep.
+    if (enabled) device.events['sleep.enter'] = { download: sleepDownloadHandler(v) };
+    else delete device.events['sleep.enter'];
     await api.writeFile(SLEEP_DEVICE, sleepBytes(new TextEncoder().encode(
       JSON.stringify(device, null, 2) + '\n')));
   }
@@ -855,8 +853,8 @@ CrossPoint.registerPlugin(async (container, api) => {
     return outcome;
   }
 
-  // До 1.6.9 карточка скачивалась всегда. Если обработчик теперь выключен, а в
-  // слоте всё ещё наша карточка, убираем её один раз при открытии страницы.
+  // Если обработчик выключен, а в слоте карточка с меткой YBX, убираем её при
+  // открытии страницы. Файлы без метки не трогаем.
   async function reconcileSleepCard() {
     if (!token) return null;
     const device = await readSleepDevice();

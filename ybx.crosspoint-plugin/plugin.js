@@ -14,7 +14,13 @@ CrossPoint.registerPlugin(async (container, api) => {
   const LEGACY_TOKEN_PATH = '/.crosspoint/plugin-data/ybx/token.json';
   const API = 'https://my.ybx.app';
   const UPDATE_URL = 'https://ybx.app/crosspoint-plugin/latest.json';
-  const KOSYNC_URL = API + '/api/v1/crosspoint/kosync';
+  // Xteink's built-in KOSync client is the flakiest part of the TLS stack, so the
+  // sync host answers over plain HTTP — for the narrow kosync_ key only, which
+  // carries no catalogue, download or event scope. The old https address stays
+  // recognized: readers configured by plugin 1.6.x keep reporting mode 'plugin'
+  // until «Обновить ключ» moves them onto the sync host.
+  const KOSYNC_URL = 'http://sync.ybx.app/api/v1/crosspoint/kosync';
+  const KOSYNC_PREVIOUS = DIR + '/kosync-previous.json';
   // The cabinet and the installer page hand out the catalogue-hosted address
   // instead, and both routes answer for the same reader account.
   const YBX_SYNC_HOSTS = ['my.ybx.app', 'ybx.app', 'opds.ybx.app'];
@@ -221,8 +227,8 @@ CrossPoint.registerPlugin(async (container, api) => {
   };
   const settingValue = (settings, key) => settings.find((item) => item.key === key)?.value;
   // These endpoints belong to the same service but NOT the same auth scheme:
-  // account KOSync uses an account/device key; the plugin endpoint uses cp_.
-  // Legacy HTTP remains supported on OPDS/sync hosts for TLS-limited readers.
+  // account KOSync uses an account/device key; the plugin endpoint uses the cp_
+  // token or, since 1.6.8, the narrow kosync_ key written by the plugin itself.
   const syncMode = (settings) => {
     const address = settingValue(settings, 'koServerUrl');
     if (typeof address !== 'string' || !address) return 'other';
@@ -233,7 +239,9 @@ CrossPoint.registerPlugin(async (container, api) => {
         return 'other';
       }
       const path = url.pathname.replace(/\/+$/, '') || '/';
-      if (url.protocol === 'https:' && path === '/api/v1/crosspoint/kosync') {
+      if (path === '/api/v1/crosspoint/kosync'
+          && (url.protocol === 'https:'
+              || (url.hostname === 'sync.ybx.app' && url.protocol === 'http:'))) {
         return 'plugin';
       }
       // Caddy serves both schemes on OPDS/sync; primary/cabinet hosts
@@ -247,16 +255,45 @@ CrossPoint.registerPlugin(async (container, api) => {
     return 'other';
   };
   const pointsToYbx = (settings) => syncMode(settings) === 'plugin';
-  const verifyPluginSync = async () => {
+  const fetchKosyncKey = async () => {
+    // The narrow kosync_ key: this account's progress GET/PUT and nothing else.
+    // It is minted over TLS with the cp_ token before it is ever handed to the
+    // firmware settings that may travel over plain HTTP. A reader whose TLS is
+    // broken cannot reach this call either — and such a reader could not have
+    // paired at all; setup it manually with a code from the cabinet instead.
+    if (typeof api.relay !== 'function') {
+      throw new Error('эта прошивка не умеет защищённых запросов из плагина — настройте KOSync вручную');
+    }
+    const result = await api.relay('POST', API + '/api/v1/crosspoint/auth/kosync-key',
+      { Authorization: 'Bearer ' + token.access_token }, '');
+    if (!result || result.status !== 200) {
+      throw new Error('сервер не выдал ключ синхронизации (HTTP '
+        + (result && result.status || 'нет ответа') + ')');
+    }
+    let payload = null;
+    try { payload = JSON.parse(result.body || ''); } catch { payload = null; }
+    const key = payload && payload.kosync_key;
+    if (typeof key !== 'string' || !key.startsWith('kosync_')) {
+      throw new Error('сервер прислал некорректный ключ');
+    }
+    return key;
+  };
+  const verifyPluginSync = async (credential) => {
     // Firmware hides koPassword from GET /api/settings: validate the visible
-    // fields and separately validate the issued token with the real endpoint.
-    // Neither establishes that the *stored* password works on the reader.
+    // fields and separately validate the issued credential with the real
+    // endpoint. Neither establishes that the *stored* password works on the
+    // reader; only the reader's next sync proves that.
     const stored = await readSettings({ required: true });
     if (!pointsToYbx(stored) || settingValue(stored, 'koUsername') !== 'ybx') {
       throw new Error('ридер не сохранил адрес или пользователя YBX');
     }
-    const result = await api.relay('GET', KOSYNC_URL + '/users/auth',
-      { Authorization: 'Basic ' + btoa('ybx:' + token.access_token) }, '');
+    // Verify against the address the reader actually saved, so a reader still
+    // on the old https endpoint and one moved to the http sync host are both
+    // checked honestly. syncMode has already rejected ports, credentials and
+    // queries in that URL, so appending the auth path cannot aim elsewhere.
+    const base = String(settingValue(stored, 'koServerUrl')).replace(/\/+$/, '');
+    const result = await api.relay('GET', base + '/users/auth',
+      { Authorization: 'Basic ' + btoa('ybx:' + (credential || token.access_token)) }, '');
     if (!result || result.status !== 200) {
       throw new Error('сервер не подтвердил ключ синхронизации (HTTP '
         + (result && result.status || 'нет ответа') + ')');
@@ -408,7 +445,10 @@ CrossPoint.registerPlugin(async (container, api) => {
       const left = document.createElement('span');
       left.textContent = 'Цель года: ' + done + ' из ' + goal.goal + ' книг';
       const right = document.createElement('span');
-      right.textContent = goal.delta > 0 ? '+' + goal.delta + ' к графику' : (goal.delta === 0 ? 'в графике' : goal.delta + ' к графику');
+      const books = (n) => n + ' ' + (n % 10 === 1 && n % 100 !== 11 ? 'книгу'
+        : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'книги' : 'книг');
+      right.textContent = goal.delta > 0 ? 'опережаете на ' + books(goal.delta)
+        : goal.delta < 0 ? 'отстаёте на ' + books(-goal.delta) : 'идёте по графику';
       line.append(left, right);
       const bar = document.createElement('div');
       bar.className = 'ybx-bar';
@@ -688,6 +728,144 @@ CrossPoint.registerPlugin(async (container, api) => {
     }
   }
 
+  // ── Экран сна: слот, который прошивка ставит выше собственных обоев ──────
+  // Карточка лежит в /sleep.bmp, а приоритет у этого файла выше каталогов
+  // /.sleep, поэтому YBX имеет право трогать только ту картинку, которую сам
+  // туда положил. Пока переключатель выключен, обработчик sleep.enter — request:
+  // прошивка ничего не скачивает и слот остаётся нетронутым.
+  const SLEEP_SLOT = '/sleep.bmp';
+  const SLEEP_BACKUP = DIR + '/sleep-original.bmp';
+  const SLEEP_DEVICE = DIR + '/device.json';
+  const SLEEP_BACKUP_LIMIT = 256 * 1024;
+  const CARD_MODE = 2;         // CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM
+  const COVER_MODE = 3;        // CrossPointSettings::SLEEP_SCREEN_MODE::COVER
+  const COVER_CUSTOM_MODE = 4; // ...::COVER_CUSTOM — the card when sleep is not from a book
+  // Версию в адресах берём из device.json ридера: сборка 1.7.0 подставляет свою.
+  const handlerVersion = (device) => (String(device?.download?.url || '').match(/[?&]v=([^&]+)/) || [])[1] || '1.6.8';
+  const sleepRequestHandler = (v) => ({
+    method: 'POST',
+    url: API + '/api/v1/crosspoint/events?v=' + v,
+    headers: { Authorization: 'Bearer {token}', 'Content-Type': 'application/json' },
+    body: '{"event":"sleep.enter","event_id":"{event.id}","ts":{event.ts}}',
+  });
+  const sleepDownloadHandler = (v) => ({
+    url: API + '/api/v1/crosspoint/sleep-image?w={cfg.sleep_width}&h={cfg.sleep_height}&v=' + v,
+    headers: { Authorization: 'Bearer {token}' },
+    dest: SLEEP_SLOT,
+  });
+  // Панели, для которых сервер рисует карточку: 1-bit BMP ровно этого размера
+  // и есть метка «это написал YBX». Любой другой файл в слоте — чужой.
+  const SLEEP_PANELS = [[480, 800], [528, 792]];
+
+  const sleepBytes = (bytes) => {
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += 8192) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+    }
+    return btoa(binary);
+  };
+  const looksLikeSleepCard = (bytes, width, height) => {
+    if (!bytes || bytes.length < 62 || bytes[0] !== 0x42 || bytes[1] !== 0x4d) return false;
+    const dword = (at) => (bytes[at] | bytes[at + 1] << 8 | bytes[at + 2] << 16 | bytes[at + 3] << 24);
+    return dword(2) === bytes.length && dword(10) === 62 && dword(28) === 1
+      && Math.abs(dword(18)) === width && Math.abs(dword(22)) === height
+      && bytes.length === 62 + Math.ceil(width / 32) * 4 * height;
+  };
+  const ownsSleepSlot = (bytes) => SLEEP_PANELS
+    .some(([width, height]) => looksLikeSleepCard(bytes, width, height));
+
+  async function readSleepFile(path) {
+    const res = await fetch('/download?path=' + encodeURIComponent(path), { cache: 'no-store' });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error('не удалось прочитать ' + path + ' (HTTP ' + res.status + ')');
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    return bytes.length ? bytes : null;
+  }
+
+  // device.json — рабочий файл прошивки: отсутствующий или непонятный файл
+  // нельзя восстанавливать «с нуля», иначе ридер потеряет каталог и вход.
+  async function readSleepDevice() {
+    const device = await readJson(SLEEP_DEVICE);
+    const hasLists = (Array.isArray(device?.browse?.lists) && device.browse.lists.length > 0)
+      || Boolean(device?.browse?.lists_url);
+    if (!device || !hasLists || device.auth?.type !== 'device_code' || typeof device.events !== 'object') {
+      throw new Error('не удалось прочитать device.json ридера');
+    }
+    return device;
+  }
+  const sleepHandlerOn = (device) => Boolean(device?.events?.['sleep.enter']?.download);
+  async function writeSleepHandler(device, enabled) {
+    const v = handlerVersion(device);
+    device.events['sleep.enter'] = enabled
+      ? { download: sleepDownloadHandler(v) }
+      : { request: sleepRequestHandler(v) };
+    await api.writeFile(SLEEP_DEVICE, sleepBytes(new TextEncoder().encode(
+      JSON.stringify(device, null, 2) + '\n')));
+  }
+  // Включение: сначала сохраняем чужую картинку, потом просим сервер рисовать,
+  // и только затем отдаём прошивке скачивать карточку в слот.
+  async function installSleepCard(device) {
+    const slot = await readSleepFile(SLEEP_SLOT);
+    if (slot && !ownsSleepSlot(slot)) {
+      if (slot.length > SLEEP_BACKUP_LIMIT) {
+        throw new Error('в /sleep.bmp лежит ваша картинка больше 256 КБ — YBX не сможет её '
+          + 'сохранить, поэтому не перезаписывает слот. Освободите его в настройках ридера.');
+      }
+      await api.writeFile(SLEEP_BACKUP, sleepBytes(slot));
+    }
+    await writeSleepHandler(device, true);
+  }
+
+  // Выключение: снимаем обработчик, затем возвращаем слот. Трогаем слот только
+  // если в нём по-прежнему наша карточка: пользователь мог положить туда своё.
+  async function removeSleepCard(device) {
+    await writeSleepHandler(device, false);
+    const slot = await readSleepFile(SLEEP_SLOT);
+    if (!slot || !ownsSleepSlot(slot)) return 'kept';
+    const backup = await readSleepFile(SLEEP_BACKUP);
+    if (backup) {
+      await api.writeFile(SLEEP_SLOT, sleepBytes(backup));
+      return 'restored';
+    }
+    // Своей картинки до YBX не было: убираем свой же файл, чтобы ридер вернулся
+    // к обоям из /.sleep. Чужой файл не удаляем — см. проверку выше.
+    const removed = await fetch('/delete', {
+      method: 'POST',
+      body: new URLSearchParams({ path: SLEEP_SLOT }),
+    });
+    if (!removed.ok) {
+      throw new Error('не удалось убрать карточку из /sleep.bmp (HTTP ' + removed.status + ')');
+    }
+    return 'cleared';
+  }
+
+  async function setSleepCard(enabled, sleepMode) {
+    const device = await readSleepDevice();
+    if (enabled) {
+      await installSleepCard(device);
+      if (sleepMode !== CARD_MODE) await writeSettings({ sleepScreen: CARD_MODE });
+      return 'on';
+    }
+    const outcome = await removeSleepCard(device);
+    // Прежний режим трогаем только если он показывал карточку: «Тёмный»,
+    // «Светлый» и выбор пользователя оставляем как есть.
+    if (sleepMode === CARD_MODE || sleepMode === COVER_CUSTOM_MODE) {
+      await writeSettings({ sleepScreen: COVER_MODE });
+    }
+    return outcome;
+  }
+
+  // До 1.6.8 карточка скачивалась всегда. Если обработчик теперь выключен, а в
+  // слоте всё ещё наша карточка, убираем её один раз при открытии страницы.
+  async function reconcileSleepCard() {
+    if (!token) return null;
+    const device = await readSleepDevice();
+    if (sleepHandlerOn(device)) return true;
+    const slot = await readSleepFile(SLEEP_SLOT);
+    if (slot && ownsSleepSlot(slot)) await removeSleepCard(device);
+    return false;
+  }
+
   async function refreshSleepCard() {
     if (!token) throw new Error('сначала войдите в YBX');
     const config = await readJson(DIR + '/config.json') || {};
@@ -710,7 +888,7 @@ CrossPoint.registerPlugin(async (container, api) => {
     sleepRow.className = 'ybx-row';
     const sleepLabel = document.createElement('span');
     sleepLabel.className = 'ybx-label';
-    sleepLabel.textContent = 'Экран сна';
+    sleepLabel.textContent = 'Экран сна со статистикой';
     const sleepValue = document.createElement('span');
     sleepValue.className = 'ybx-value';
     sleepRow.append(sleepLabel, sleepValue);
@@ -719,7 +897,7 @@ CrossPoint.registerPlugin(async (container, api) => {
     syncRow.className = 'ybx-row';
     const syncLabel = document.createElement('span');
     syncLabel.className = 'ybx-label';
-    syncLabel.textContent = 'KOReader Sync';
+    syncLabel.textContent = 'KOSync';
     const syncValue = document.createElement('span');
     syncValue.className = 'ybx-value';
     const current = await readSettings();
@@ -743,16 +921,49 @@ CrossPoint.registerPlugin(async (container, api) => {
     sleepHelpText.textContent = 'Карточку обновляет прошивка перед засыпанием — заходить в плагин не нужно. '
       + 'Без связи останется предыдущая картинка. Во время сна обновлений нет. '
       + 'В проверенной сборке 2.0.0-rc+91ed3ef ридер пробует последнюю сеть до 10 секунд '
-      + 'при заряде от 20%; на других сборках условия зависят от прошивки.';
+      + 'при заряде от 20%; на других сборках условия зависят от прошивки. '
+      + 'Пока переключатель выключен, прошивка ничего не скачивает и слот /sleep.bmp '
+      + 'остаётся вашим: при выключении YBX возвращает сохранённую картинку, а если её '
+      + 'не было — убирает свою карточку, и ридер снова берёт обои из /.sleep.';
     sleepHelp.append(sleepHelpTitle, sleepHelpText);
     rows.appendChild(sleepHelp);
     rows.appendChild(syncRow);
+    const restoreButton = document.createElement('button');
+    restoreButton.type = 'button';
+    restoreButton.textContent = 'Вернуть прежний KOSync';
+    restoreButton.hidden = !(await readJson(KOSYNC_PREVIOUS));
+    restoreButton.onclick = async () => {
+      const previous = await readJson(KOSYNC_PREVIOUS);
+      if (!previous) { restoreButton.hidden = true; return; }
+      const where = previous.koServerUrl || 'облако CrossPoint Sync';
+      if (!window.confirm('Вернуть прежние настройки KOSync?\n\nСервер: ' + where
+          + '\nЛогин: ' + (previous.koUsername || 'не указан')
+          + '\n\nПароль прошивка не отдаёт, поэтому его нужно будет ввести заново '
+          + 'в настройках KOSync на ридере. Ключ YBX будет стёрт.')) return;
+      restoreButton.disabled = true;
+      try {
+        const values = { koServerUrl: previous.koServerUrl, koUsername: previous.koUsername, koPassword: '' };
+        for (const key of ['koMatchMethod', 'koSyncBehavior', 'koSendMetadata']) {
+          if (previous[key] !== undefined && previous[key] !== null) values[key] = previous[key];
+        }
+        await writeSettings(values);
+        await fetch('/delete', { method: 'POST', body: new URLSearchParams({ path: KOSYNC_PREVIOUS }) });
+        restoreButton.hidden = true;
+        syncValue.textContent = 'свой сервер';
+        syncButton.textContent = 'Настроить KOSync';
+        message('Прежние адрес и логин KOSync возвращены. Введите пароль в настройках KOSync на ридере.', 'ok');
+      } catch (error) {
+        message('Не удалось вернуть прежний KOSync: ' + error.message, 'err');
+      } finally {
+        restoreButton.disabled = false;
+      }
+    };
     const syncButton = document.createElement('button');
     syncButton.type = 'button';
     syncButton.className = 'primary';
-    syncButton.textContent = mode === 'plugin' ? 'Обновить ключ KOReader Sync'
+    syncButton.textContent = mode === 'plugin' ? 'Обновить ключ KOSync'
       : mode === 'account' ? 'Перейти на KOSync через плагин'
-      : 'Настроить KOReader Sync';
+      : 'Настроить KOSync';
     syncButton.disabled = !token;
     syncButton.onclick = async () => {
       syncButton.disabled = true;
@@ -760,55 +971,79 @@ CrossPoint.registerPlugin(async (container, api) => {
         const latest = await readSettings({ required: true });
         if (pointsToYbx(latest) && settingValue(latest, 'koUsername') === 'ybx') {
           if (!window.confirm('Обновить ключ синхронизации через плагин YBX?\n\n'
-              + 'Будет изменён только пароль этого режима. Сервер и другие настройки сохранятся.')) {
+              + 'Будут изменены пароль и адрес сервера этого режима. '
+              + 'Другие настройки сохранятся.')) {
             message('Обновление ключа отменено. Настройки не изменены.');
             return;
           }
-          await writeSettings({ koPassword: token.access_token });
-          await verifyPluginSync();
+          // Rotate the narrow key over TLS, then move the reader onto the HTTP
+          // sync host: the key carries no catalog/download/event scope, so it
+          // is safe to store where a TLS-limited Xteink can still reach it.
+          const key = await fetchKosyncKey();
+          await writeSettings({ koServerUrl: KOSYNC_URL, koPassword: key });
+          await verifyPluginSync(key);
           syncValue.textContent = 'YBX · через плагин';
-          syncButton.textContent = 'Обновить ключ KOReader Sync';
-          message('Адрес сохранён, сервер принимает токен. Проверьте '
+          syncButton.textContent = 'Обновить ключ KOSync';
+          message('Адрес сохранён, сервер принимает ключ. Проверьте '
             + 'фактическую синхронизацию позиции на ридере.', 'ok');
           return;
         }
         let server = 'не указан';
         const configuredServer = settingValue(latest, 'koServerUrl');
+        let crosspointCloud = !configuredServer;
         if (configuredServer) {
           try {
             const url = new URL(configuredServer);
             server = url.origin + url.pathname;
+            crosspointCloud = url.hostname.includes('crosspoint');
           } catch { server = 'настроен другой сервер'; }
         }
+        if (crosspointCloud) server = 'облако CrossPoint Sync';
         const legacy = syncMode(latest) === 'account';
         if (!window.confirm((legacy
           ? 'Сейчас используется самостоятельный KOSync аккаунта YBX. '
             + 'Его ключ не будет изменён. Перейти на режим синхронизации через плагин?'
-          : 'Настроить синхронизацию через плагин YBX?')
+          : crosspointCloud
+            ? 'Сейчас позиции уходят в облако CrossPoint Sync, а в YBX попадают через его '
+              + 'зеркало — только в одну сторону: прогресс с других устройств на этот ридер '
+              + 'не возвращается. После переключения ридер будет обмениваться позициями с YBX '
+              + 'напрямую в обе стороны, а облако CrossPoint перестанет получать позиции с него.'
+            : 'Настроить синхронизацию через плагин YBX?')
           + '\n\nТекущий сервер: ' + server
           + '\n\nБудут заменены адрес сервера, имя пользователя, пароль и параметры '
           + 'синхронизации на этом ридере. Сохранённый прогресс на прежнем сервере не удаляется.'
+          + ' Вернуть прежние адрес и логин можно кнопкой «Вернуть прежний KOSync».'
           + '\n\nПродолжить?')) {
           syncButton.disabled = false;
           message('Настройка отменена. Прежние настройки сохранены.');
           return;
         }
-        message('Настраиваем KOReader Sync…');
+        message('Настраиваем KOSync…');
+        const key = await fetchKosyncKey();
+        await writeJson(KOSYNC_PREVIOUS, {
+          koServerUrl: configuredServer || '',
+          koUsername: settingValue(latest, 'koUsername') || '',
+          koMatchMethod: settingValue(latest, 'koMatchMethod'),
+          koSyncBehavior: settingValue(latest, 'koSyncBehavior'),
+          koSendMetadata: settingValue(latest, 'koSendMetadata'),
+          savedAt: new Date().toISOString(),
+        });
+        restoreButton.hidden = false;
         await writeSettings({
           koServerUrl: KOSYNC_URL,
           koUsername: 'ybx',
-          koPassword: token.access_token,
+          koPassword: key,
           koMatchMethod: 1,
           koSyncBehavior: 1,
           koSendMetadata: 1,
         });
         // POST may succeed while firmware drops unknown keys. The readback
-        // validates visible settings; server auth validates the token itself.
+        // validates visible settings; server auth validates the credential.
         // Only the reader's next sync proves its masked password was stored.
-        await verifyPluginSync();
+        await verifyPluginSync(key);
         syncValue.textContent = 'YBX · через плагин';
-        syncButton.textContent = 'Обновить ключ KOReader Sync';
-        message('Адрес сохранён, сервер принимает токен. Проверьте '
+        syncButton.textContent = 'Обновить ключ KOSync';
+        message('Адрес сохранён, сервер принимает ключ. Проверьте '
           + 'фактическую синхронизацию позиции на ридере.', 'ok');
       } catch (error) {
         message('Не удалось настроить синхронизацию: ' + error.message, 'err');
@@ -818,37 +1053,56 @@ CrossPoint.registerPlugin(async (container, api) => {
         syncButton.disabled = !token;
       }
     };
-    // The card is the firmware's own «Свой» mode showing /sleep.bmp, so the
-    // switch works in both directions: on writes «Свой», off writes «Обложка»
-    // (the mode a person expects to see back). The neighbouring «Обложка + Свой»
-    // draws the card whenever sleep is not taken from a book — that is the mode
-    // behind «выключил, а оно всё равно включается», so it is named and explained
-    // here instead of being reported as an anonymous "другой режим".
+    // «Свой» is the firmware mode that shows /sleep.bmp, so switching the card on
+    // writes it and switching off writes «Обложка» — the mode a person expects to
+    // come back. «Обложка + Свой» also draws the card whenever sleep is not taken
+    // from a book: that is the mode behind «выключил, а оно всё равно включается»,
+    // so it is named and explained here instead of reported as «другой режим».
     const SLEEP_MODES = ['Тёмный', 'Светлый', 'Свой', 'Обложка', 'Обложка + Свой',
                          'Нет', 'Быстрое возобновление', 'Прозрачный'];
-    const CARD_MODE = 2;         // CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM
-    const COVER_MODE = 3;        // CrossPointSettings::SLEEP_SCREEN_MODE::COVER
-    const COVER_CUSTOM_MODE = 4; // ...::COVER_CUSTOM — the card when sleep is not from a book
     let sleepMode = Number(settingValue(current, 'sleepScreen'));
-    // «Обложка + Свой» counts as on: the card does appear there, and a person who
-    // believes it is off needs the switch to turn it off, not to reinforce it.
-    const sleepShowsCard = () => sleepMode === CARD_MODE || sleepMode === COVER_CUSTOM_MODE;
+    // Переключатель — это сам обработчик sleep.enter в device.json ридера.
+    let sleepCardEnabled = null;
+    try {
+      sleepCardEnabled = sleepHandlerOn(await readSleepDevice());
+    } catch (error) {
+      sleepCardEnabled = null;
+    }
     const sleepButton = document.createElement('button');
     sleepButton.type = 'button';
     sleepButton.className = 'primary';
     sleepButton.onclick = async () => {
-      const turningOn = !sleepShowsCard();
+      const turningOn = sleepCardEnabled !== true;
       sleepButton.disabled = true;
-      message(turningOn ? 'Включаем экран сна…' : 'Выключаем экран сна…');
+      message(turningOn ? 'Включаем экран сна со статистикой…' : 'Выключаем экран сна…');
       try {
-        await writeSettings({ sleepScreen: turningOn ? CARD_MODE : COVER_MODE });
-        sleepMode = turningOn ? CARD_MODE : COVER_MODE;
+        if (turningOn) {
+          const slot = await readSleepFile(SLEEP_SLOT);
+          if (slot && !ownsSleepSlot(slot) && !window.confirm(
+              'В /sleep.bmp лежит ваша картинка. YBX сохранит её рядом и вернёт, '
+              + 'когда вы выключите статистику на экране сна.\n\nПродолжить?')) {
+            message('Включение отменено: ваша картинка в /sleep.bmp не тронута.');
+            return;
+          }
+        }
+        const outcome = await setSleepCard(turningOn, sleepMode);
+        sleepCardEnabled = turningOn;
+        if (turningOn) {
+          sleepMode = CARD_MODE;
+        } else if (sleepMode === CARD_MODE || sleepMode === COVER_CUSTOM_MODE) {
+          sleepMode = COVER_MODE;
+        }
         paintSleepState();
         message(turningOn
-          ? 'Экран сна включён. Перед засыпанием ридер попробует загрузить свежую статистику через Wi-Fi.'
-          : 'Статистика на сне выключена: ридер снова покажет обложку книги.', 'ok');
+          ? 'Статистика на экране сна включена: перед засыпанием ридер скачает свежую карточку.'
+          : outcome === 'restored'
+            ? 'Статистика выключена — ваша прежняя картинка возвращена в /sleep.bmp.'
+            : outcome === 'cleared'
+              ? 'Статистика выключена: карточка убрана, ридер снова возьмёт обои из /.sleep.'
+              : 'Статистика выключена: прошивка больше не скачивает карточку, '
+                + 'а ваша картинка в /sleep.bmp осталась на месте.', 'ok');
       } catch (error) {
-        message('Не удалось изменить экран сна: ' + error.message, 'err');
+        message('Не удалось изменить экран сна со статистикой: ' + error.message, 'err');
         paintSleepState();
       }
     };
@@ -871,16 +1125,19 @@ CrossPoint.registerPlugin(async (container, api) => {
     };
 
     const paintSleepState = () => {
-      const on = sleepShowsCard();
-      sleepValue.textContent = SLEEP_MODES[sleepMode] || 'не выбран';
-      sleepButton.textContent = on ? 'Выключить статистику на сне' : 'Включать статистику на сне';
-      sleepButton.disabled = false;
+      const on = sleepCardEnabled === true;
+      sleepValue.textContent = (SLEEP_MODES[sleepMode] || 'режим не определён')
+        + (sleepCardEnabled === null ? ' · переключатель не прочитан'
+          : on ? ' · статистика' : ' · обои ридера');
+      sleepButton.textContent = on ? 'Выключить экран сна со статистикой'
+        : 'Включить экран сна со статистикой';
+      sleepButton.disabled = !token || sleepCardEnabled === null;
       sleepCardButton.disabled = !token || !on;
-      sleepHint.hidden = sleepMode !== 4;
+      sleepHint.hidden = sleepMode !== COVER_CUSTOM_MODE || !on;
       sleepHint.textContent = sleepHint.hidden
         ? ''
-        : 'Сейчас «Обложка + Свой»: карточка появится, когда сон не из книги. '
-          + 'Выключите статистику, чтобы всегда видеть обложку.';
+        : 'Сейчас «Обложка + Свой»: карточка появится, только если сон не из книги. '
+          + 'Выберите «Свой», чтобы статистика была на каждом засыпании.';
     };
     paintSleepState();
 
@@ -1169,7 +1426,7 @@ CrossPoint.registerPlugin(async (container, api) => {
           if (!Array.isArray(settings)) throw new Error('некорректный ответ');
           if (pointsToYbx(settings)) await writeSettings(SYNC_OFF);
         } catch (error) {
-          cleanupWarnings.push('не удалось очистить настройки KOReader Sync: ' + error.message);
+          cleanupWarnings.push('не удалось очистить настройки KOSync: ' + error.message);
         }
 
         // Mark explicit logout. The legacy fallback MUST NOT reactivate an
@@ -1197,7 +1454,7 @@ CrossPoint.registerPlugin(async (container, api) => {
         signOutButton.disabled = false;
       }
     };
-    actions.append(sleepButton, sleepCardButton, statsButton, syncButton, checkButton, updateButton, signOutButton);
+    actions.append(sleepButton, sleepCardButton, statsButton, syncButton, restoreButton, checkButton, updateButton, signOutButton);
     settings.appendChild(rows);
     settings.appendChild(statsHint);
     settings.appendChild(updateBanner);
@@ -1245,6 +1502,7 @@ CrossPoint.registerPlugin(async (container, api) => {
           .catch(() => ({ yandex: { received: [], pending: [] } })),
       ]);
       renderProfile(summary, calendar, achievements);
+      try { await reconcileSleepCard(); } catch { /* переключатель покажет причину */ }
       await loadProfile();
       message('Ридер подключён к YBX. Каталог — Home → Plugins → YBX.', 'ok');
     } catch (error) {

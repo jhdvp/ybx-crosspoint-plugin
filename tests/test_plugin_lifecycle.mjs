@@ -25,70 +25,84 @@ const logout = extract('    signOutButton.onclick = async () => {', '\n    actio
 const sleepConsts = extract('    const SLEEP_MODES =', '\n    const sleepButton =');
 const sleepToggle = extract('    sleepButton.onclick = async () => {', '\n    const sleepCardButton =');
 const sleepPaint = extract('    const paintSleepState = () => {', '\n    paintSleepState();');
-const sleepRuntime = sleepConsts + sleepToggle + sleepPaint
-  + '\npaintSleepState();\nglobalThis.sleepMode = () => sleepMode;';
+// The page reads the switch from the reader's own device.json, so the slices
+// run inside an async wrapper with the file helpers mocked.
+const sleepRuntime = '(async () => {\n' + sleepConsts + sleepToggle + sleepPaint
+  + '\npaintSleepState();\nglobalThis.sleepMode = () => sleepMode;\n})()';
 
-function sleepSettings({ mode = 3, token = { access_token: 'cp_test' }, failure = null } = {}) {
-  const writes = [];
+async function sleepSettings({ mode = 3, cardOn = false, token = { access_token: 'cp_test' },
+                               failure = null, slot = null, confirm = true } = {}) {
+  const calls = [];
   const messages = [];
+  let handlerOn = cardOn;
   const context = vm.createContext({
     settingValue: (settings, key) => settings[key],
     current: { sleepScreen: mode },
     token,
+    CARD_MODE: 2, COVER_MODE: 3, COVER_CUSTOM_MODE: 4, SLEEP_SLOT: '/sleep.bmp',
     sleepButton: { disabled: false, textContent: '' },
     sleepValue: { textContent: '' },
     sleepCardButton: { disabled: true },
     sleepHint: { hidden: true, textContent: '' },
+    window: { confirm: () => confirm },
     message: (text, kind) => messages.push([kind || 'info', text]),
-    writeSettings: async (value) => {
+    readSleepDevice: async () => ({ events: {} }),
+    sleepHandlerOn: () => handlerOn,
+    readSleepFile: async () => slot,
+    ownsSleepSlot: (bytes) => bytes === 'ours',
+    setSleepCard: async (enabled, currentMode) => {
       if (failure) throw new Error(failure);
-      writes.push(value);
+      calls.push([enabled, currentMode]);
+      handlerOn = enabled;
+      return enabled ? 'on' : 'cleared';
     },
   });
-  vm.runInContext(sleepRuntime, context);
-  return { context, writes, messages };
+  await vm.runInContext(sleepRuntime, context);
+  return { context, calls, messages };
 }
 
 test('the sleep switch turns the statistics card on and back off', async () => {
-  const screen = sleepSettings({ mode: 3 });  // «Обложка»
-  assert.equal(screen.context.sleepValue.textContent, 'Обложка');
-  assert.equal(screen.context.sleepButton.textContent, 'Включать статистику на сне');
+  const screen = await sleepSettings({ mode: 3 });  // «Обложка», card off
+  assert.match(screen.context.sleepValue.textContent, /^Обложка · обои ридера/);
+  assert.equal(screen.context.sleepButton.textContent, 'Включить экран сна со статистикой');
 
   await screen.context.sleepButton.onclick();
-  assert.deepEqual(screen.writes.map((item) => item.sleepScreen), [2]);
+  assert.deepEqual(screen.calls, [[true, 3]]);
   assert.equal(screen.context.sleepMode(), 2);
-  assert.equal(screen.context.sleepValue.textContent, 'Свой');
-  assert.equal(screen.context.sleepButton.textContent, 'Выключить статистику на сне');
+  assert.equal(screen.context.sleepButton.textContent, 'Выключить экран сна со статистикой');
   assert.equal(screen.context.sleepCardButton.disabled, false);
 
   await screen.context.sleepButton.onclick();
-  assert.deepEqual(screen.writes.map((item) => item.sleepScreen), [2, 3]);
+  assert.deepEqual(screen.calls, [[true, 3], [false, 2]]);
   assert.equal(screen.context.sleepMode(), 3);
-  assert.equal(screen.context.sleepValue.textContent, 'Обложка');
-  assert.equal(screen.context.sleepButton.textContent, 'Включать статистику на сне');
+  assert.equal(screen.context.sleepButton.textContent, 'Включить экран сна со статистикой');
   assert.equal(screen.context.sleepCardButton.disabled, true);
+  assert.match(screen.messages.at(-1)[1], /карточка убрана/);
 });
 
-test('«Обложка + Свой» is named, explained and switched off as a whole', async () => {
-  const screen = sleepSettings({ mode: 4 });  // the mode behind "выключил, а оно включается"
-  assert.equal(screen.context.sleepValue.textContent, 'Обложка + Свой');
+test('«Обложка + Свой» is explained and switched off as a whole', async () => {
+  const screen = await sleepSettings({ mode: 4, cardOn: true });
   assert.equal(screen.context.sleepHint.hidden, false);
-  assert.match(screen.context.sleepHint.textContent, /когда сон не из книги/);
-  assert.equal(screen.context.sleepButton.textContent, 'Выключить статистику на сне');
+  assert.match(screen.context.sleepHint.textContent, /только если сон не из книги/);
 
   await screen.context.sleepButton.onclick();
-  assert.deepEqual(screen.writes.map((item) => item.sleepScreen), [3]);
+  assert.deepEqual(screen.calls, [[false, 4]]);
   assert.equal(screen.context.sleepMode(), 3);
   assert.equal(screen.context.sleepHint.hidden, true);
 });
 
-test('a refused settings write leaves the switch where it was', async () => {
-  const screen = sleepSettings({ mode: 3, failure: 'settings HTTP 500' });
-
+test('a user picture in /sleep.bmp is not touched without consent', async () => {
+  const screen = await sleepSettings({ mode: 3, slot: 'theirs', confirm: false });
   await screen.context.sleepButton.onclick();
+  assert.deepEqual(screen.calls, []);
+  assert.match(screen.messages.at(-1)[1], /не тронута/);
+});
 
-  assert.deepEqual(screen.writes, []);
+test('a refused change leaves the switch where it was', async () => {
+  const screen = await sleepSettings({ mode: 3, failure: 'HTTP 500' });
+  await screen.context.sleepButton.onclick();
   assert.equal(screen.context.sleepMode(), 3);
+  assert.equal(screen.context.sleepButton.textContent, 'Включить экран сна со статистикой');
   assert.equal(screen.context.sleepButton.disabled, false);
   assert.match(screen.messages.at(-1)[1], /Не удалось изменить экран сна/);
 });
@@ -164,23 +178,35 @@ test('settings failure must block mutation, not imply that settings are blank', 
 function syncScenario({
   confirm = true, synced = true, server = null, settingsFailure = false,
   dropWrite = false, dropUser = false, refreshFailure = false, authStatus = 200,
+  keyStatus = 200, keyBody = JSON.stringify({ kosync_key: 'kosync_test', username: 'ybx' }),
   username = null,
 } = {}) {
   const writes = [], messages = [], confirmations = [], authCalls = [];
   const token = { access_token: 'cp_new' };
   const stored = {
-    koServerUrl: server ?? (synced ? 'https://my.ybx.app/api/v1/crosspoint/kosync' : ''),
+    koServerUrl: server ?? (synced ? 'http://sync.ybx.app/api/v1/crosspoint/kosync' : ''),
     koUsername: username ?? (server?.includes('/kosync') && !server.includes('/api/v1/')
       ? 'account_name' : 'ybx'),
     koPassword: 'masked',
   };
   let reads = 0;
+  const saved = [];
   const context = vm.createContext({
-    token, Error, URL,
+    token, Error, URL, Date,
     btoa: (s) => Buffer.from(s).toString('base64'),
-    api: { relay: async (...args) => { authCalls.push(args); return { status: authStatus }; } },
+    API: 'https://my.ybx.app',
+    api: { relay: async (...args) => {
+      authCalls.push(args);
+      if (args[0] === 'POST' && String(args[1]).endsWith('/auth/kosync-key')) {
+        return { status: keyStatus, body: keyBody };
+      }
+      return { status: authStatus };
+    } },
     syncButton: { disabled: false },
     syncValue: { textContent: '' },
+    restoreButton: { hidden: true },
+    KOSYNC_PREVIOUS: '/.crosspoint/plugins/ybx/kosync-previous.json',
+    writeJson: async (path, value) => { saved.push([path, value]); },
     window: { confirm: (prompt) => { confirmations.push(prompt); return confirm; } },
     readSettings: async () => {
       reads += 1;
@@ -188,7 +214,7 @@ function syncScenario({
       return Object.entries(stored).map(([key, value]) => ({ key, value }));
     },
     settingValue: (rows, key) => rows.find((row) => row.key === key)?.value,
-    KOSYNC_URL: 'https://my.ybx.app/api/v1/crosspoint/kosync',
+    KOSYNC_URL: 'http://sync.ybx.app/api/v1/crosspoint/kosync',
     writeSettings: async (value) => {
       writes.push(value);
       if (!dropWrite) for (const [key, val] of Object.entries(value)) {
@@ -200,20 +226,48 @@ function syncScenario({
   });
   vm.runInContext(syncUrlHelpers, context);
   vm.runInContext(sync, context);
-  return { context, writes, messages, confirmations, stored, authCalls };
+  return { context, writes, messages, confirmations, stored, authCalls, saved };
 }
 
-test('plugin token refresh preserves the plugin endpoint and validates the token', async () => {
-  const host = syncScenario();
+const getAuthCalls = (host) => host.authCalls.filter((call) => call[0] === 'GET');
+
+test('rotation mints the narrow key over TLS and validates it on the sync host', async () => {
+  // A reader still configured by plugin 1.6.x on the old https address.
+  const host = syncScenario({ server: 'https://my.ybx.app/api/v1/crosspoint/kosync' });
   await host.context.syncButton.onclick();
-  assert.deepEqual(host.writes.map(x => Object.keys(x)), [['koPassword']]);
-  assert.equal(host.writes[0].koPassword, 'cp_new');
-  assert.equal(host.authCalls[0][0], 'GET');
-  assert.equal(host.authCalls[0][1], 'https://my.ybx.app/api/v1/crosspoint/kosync/users/auth');
-  assert.equal(host.authCalls[0][2].Authorization,
-    'Basic ' + Buffer.from('ybx:cp_new').toString('base64'));
+  assert.deepEqual(host.writes.map(x => Object.keys(x)), [['koServerUrl', 'koPassword']]);
+  assert.equal(host.writes[0].koServerUrl, 'http://sync.ybx.app/api/v1/crosspoint/kosync');
+  assert.equal(host.writes[0].koPassword, 'kosync_test');
+  const mint = host.authCalls[0];
+  assert.equal(mint[0], 'POST');
+  assert.equal(mint[1], 'https://my.ybx.app/api/v1/crosspoint/auth/kosync-key');
+  assert.equal(mint[2].Authorization, 'Bearer cp_new');
+  const verify = getAuthCalls(host)[0];
+  assert.equal(verify[1], 'http://sync.ybx.app/api/v1/crosspoint/kosync/users/auth');
+  assert.equal(verify[2].Authorization,
+    'Basic ' + Buffer.from('ybx:kosync_test').toString('base64'));
   assert.equal(host.context.syncButton.disabled, false);
-  assert.match(host.messages.at(-1)[0], /сервер принимает токен/);
+  assert.match(host.messages.at(-1)[0], /сервер принимает ключ/);
+});
+
+test('a refused key mint writes nothing', async () => {
+  const host = syncScenario({ keyStatus: 503 });
+  await host.context.syncButton.onclick();
+  assert.deepEqual(host.writes, []);
+  assert.equal(getAuthCalls(host).length, 0);
+  assert.match(host.messages.at(-1)[0], /не выдал ключ синхронизации \(HTTP 503\)/);
+  assert.equal(host.messages.at(-1)[1], 'err');
+});
+
+test('a malformed key answer writes nothing', async () => {
+  const host = syncScenario({ keyBody: 'not-json' });
+  await host.context.syncButton.onclick();
+  assert.deepEqual(host.writes, []);
+  assert.match(host.messages.at(-1)[0], /некорректный ключ/);
+  const wrong = syncScenario({ keyBody: JSON.stringify({ kosync_key: 'cp_sneaky' }) });
+  await wrong.context.syncButton.onclick();
+  assert.deepEqual(wrong.writes, []);
+  assert.match(wrong.messages.at(-1)[0], /некорректный ключ/);
 });
 
 test('plugin setup refuses a failed settings read without changing credentials', async () => {
@@ -230,11 +284,11 @@ test('declined credential refresh leaves settings untouched', async () => {
   assert.equal(host.context.syncButton.disabled, false);
 });
 
-test('firmware drops URL: no success and no token auth request', async () => {
+test('firmware drops URL: no success and no validation request', async () => {
   const host = syncScenario({ synced: false, dropWrite: true });
   await host.context.syncButton.onclick();
   assert.equal(host.writes.length, 1);
-  assert.equal(host.authCalls.length, 0);
+  assert.equal(getAuthCalls(host).length, 0);
   assert.match(host.messages.at(-1)[0], /не сохранил адрес/);
   assert.equal(host.messages.at(-1)[1], 'err');
 });
@@ -243,7 +297,7 @@ test('firmware accepts address but drops username: no false success', async () =
   const host = syncScenario({ synced: false, username: 'old', dropUser: true });
   await host.context.syncButton.onclick();
   assert.match(host.messages.at(-1)[0], /не сохранил адрес или пользователя/);
-  assert.equal(host.authCalls.length, 0);
+  assert.equal(getAuthCalls(host).length, 0);
 });
 
 test('good settings and server token response are reported as verified, not synchronized', async () => {
@@ -259,7 +313,7 @@ test('server refuses a token: show error despite saved URL and user', async () =
   const host = syncScenario({ synced: false, authStatus: 401 });
   await host.context.syncButton.onclick();
   assert.equal(host.writes.length, 1);
-  assert.equal(host.authCalls.length, 1);
+  assert.equal(getAuthCalls(host).length, 1);
   assert.equal(host.messages.at(-1)[1], 'err');
   assert.match(host.messages.at(-1)[0], /HTTP 401/);
 });
@@ -282,10 +336,10 @@ test('account migration requires consent and writes coherent plugin credentials'
   await host.context.syncButton.onclick();
   assert.deepEqual(host.writes.map((item) => Object.keys(item))[0],
     ['koServerUrl', 'koUsername', 'koPassword', 'koMatchMethod', 'koSyncBehavior', 'koSendMetadata']);
-  assert.equal(host.stored.koServerUrl, 'https://my.ybx.app/api/v1/crosspoint/kosync');
+  assert.equal(host.stored.koServerUrl, 'http://sync.ybx.app/api/v1/crosspoint/kosync');
   assert.equal(host.stored.koUsername, 'ybx');
-  assert.equal(host.stored.koPassword, 'cp_new');
-  assert.equal(host.authCalls.length, 1);
+  assert.equal(host.stored.koPassword, 'kosync_test');
+  assert.equal(getAuthCalls(host).length, 1);
   assert.match(host.messages.at(-1)[0], /Проверьте/);
 });
 
@@ -293,7 +347,7 @@ test('a settings read lost after the write is not success', async () => {
   const host = syncScenario({ synced: false, refreshFailure: true });
   await host.context.syncButton.onclick();
   assert.equal(host.writes.length, 1);
-  assert.equal(host.authCalls.length, 0);
+  assert.equal(getAuthCalls(host).length, 0);
   assert.equal(host.messages.at(-1)[1], 'err');
 });
 
@@ -307,8 +361,22 @@ test('invalid schemes, substring paths and ports never identify a configured end
     const host = syncScenario({ server });
     assert.equal(host.context.syncMode([{ key: 'koServerUrl', value: server }]), 'other', server);
     await host.context.syncButton.onclick();
-    assert.equal(host.writes[0].koServerUrl, 'https://my.ybx.app/api/v1/crosspoint/kosync', server);
+    assert.equal(host.writes[0].koServerUrl, 'http://sync.ybx.app/api/v1/crosspoint/kosync', server);
   }
+});
+
+test('the plugin endpoint is recognized on the sync host over HTTP and on the cabinet over HTTPS', () => {
+  const host = syncScenario({ synced: false });
+  const row = (value) => [{ key: 'koServerUrl', value }];
+  assert.equal(host.context.syncMode(row('http://sync.ybx.app/api/v1/crosspoint/kosync')), 'plugin');
+  assert.equal(host.context.syncMode(row('http://sync.ybx.app/api/v1/crosspoint/kosync/')), 'plugin');
+  assert.equal(host.context.syncMode(row('https://my.ybx.app/api/v1/crosspoint/kosync')), 'plugin');
+  assert.equal(host.context.syncMode(row('https://sync.ybx.app/api/v1/crosspoint/kosync')), 'plugin');
+  // The cabinet host redirects HTTP to HTTPS and never carries a broad token
+  // in the clear, so plain HTTP there is a typo, not a configured endpoint.
+  assert.equal(host.context.syncMode(row('http://my.ybx.app/api/v1/crosspoint/kosync')), 'other');
+  assert.equal(host.context.syncMode(row('http://sync.ybx.app/api/v1/crosspoint/kosync/x')), 'other');
+  assert.equal(host.context.syncMode(row('http://sync.ybx.app:8080/api/v1/crosspoint/kosync')), 'other');
 });
 function logoutScenario({
   status = 204, confirm = false, networkFailure = false,
@@ -416,7 +484,7 @@ test('failed KOSync settings read is surfaced, but local token is blocked', asyn
   const host = logoutScenario({ settingsFailure: true });
   await host.context.signOutButton.onclick();
   assert.equal(host.context.token, null);
-  assert.match(host.messages.at(-1)[0], /не удалось очистить настройки KOReader Sync/);
+  assert.match(host.messages.at(-1)[0], /не удалось очистить настройки KOSync/);
   assert.equal(host.writes.length, 1);
   assert.equal(host.messages.at(-1)[1], 'err');
 });
@@ -425,7 +493,7 @@ test('KOSync settings write failure is surfaced and token cleanup continues', as
   const host = logoutScenario({ settingsWriteFailure: true });
   await host.context.signOutButton.onclick();
   assert.equal(host.context.token, null);
-  assert.match(host.messages.at(-1)[0], /не удалось очистить настройки KOReader Sync/);
+  assert.match(host.messages.at(-1)[0], /не удалось очистить настройки KOSync/);
 });
 
 test('local SD cleanup failure does not pretend logout completed', async () => {
@@ -433,4 +501,108 @@ test('local SD cleanup failure does not pretend logout completed', async () => {
   await host.context.signOutButton.onclick();
   assert.notEqual(host.context.token, null);
   assert.match(host.messages.at(-1)[0], /очистить локальные настройки не удалось/);
+});
+
+// The slot helpers decide whose picture /sleep.bmp holds; they must never
+// delete or overwrite a picture YBX did not write.
+const sleepSlot = extract('  const SLEEP_SLOT =', '\n  async function refreshSleepCard');
+
+function bmpCard(width, height) {
+  const size = 62 + Math.ceil(width / 32) * 4 * height;
+  const bytes = new Uint8Array(size);
+  const put = (at, value) => { bytes[at] = value & 255; bytes[at + 1] = value >> 8 & 255;
+    bytes[at + 2] = value >> 16 & 255; bytes[at + 3] = value >> 24 & 255; };
+  bytes[0] = 0x42; bytes[1] = 0x4d; put(2, size); put(10, 62); put(18, width); put(22, height);
+  bytes[28] = 1;
+  return bytes;
+}
+
+async function slotWorld({ slot = null, backup = null, handler = 'request', token = { access_token: 'cp_x' } } = {}) {
+  const files = new Map();
+  if (slot) files.set('/sleep.bmp', slot);
+  if (backup) files.set('/.crosspoint/plugins/ybx/sleep-original.bmp', backup);
+  const device = { browse: { lists_url: 'x' }, auth: { type: 'device_code' },
+    download: { url: 'https://my.ybx.app/api/v1/crosspoint/books/{id}/download?v=1.7.0' },
+    events: { 'sleep.enter': handler === 'download' ? { download: {} } : { request: {} } } };
+  const writes = [];
+  const deletes = [];
+  const settings = [];
+  const ctx = vm.createContext({
+    DIR: '/.crosspoint/plugins/ybx', API: 'https://my.ybx.app', token,
+    TextEncoder, Uint8Array, String, Boolean, Math, JSON, Error, URLSearchParams, encodeURIComponent,
+    btoa: (s) => Buffer.from(s, 'binary').toString('base64'),
+    readJson: async () => JSON.parse(JSON.stringify(device)),
+    writeSettings: async (value) => settings.push(value),
+    api: { writeFile: async (path, b64) => {
+      const bytes = new Uint8Array(Buffer.from(b64, 'base64'));
+      writes.push(path); files.set(path, bytes);
+      if (path.endsWith('device.json')) Object.assign(device, JSON.parse(Buffer.from(bytes).toString()));
+    } },
+    fetch: async (url, init) => {
+      if (url === '/delete') { const p = init.body.get('path'); deletes.push(p); files.delete(p); return { ok: true }; }
+      const path = decodeURIComponent(url.split('path=')[1]);
+      const bytes = files.get(path);
+      return bytes ? { ok: true, status: 200, arrayBuffer: async () => bytes.buffer } : { ok: false, status: 404 };
+    },
+  });
+  await vm.runInContext('(async () => {\n' + sleepSlot
+    + '\nObject.assign(globalThis, { setSleepCard, reconcileSleepCard, ownsSleepSlot });\n})()', ctx);
+  return { ctx, files, writes, deletes, settings, device };
+}
+
+test('turning the card off restores a saved picture and never deletes a foreign one', async () => {
+  const theirs = new Uint8Array([0x42, 0x4d, 1, 2, 3]);
+  const off = await slotWorld({ slot: bmpCard(480, 800), backup: theirs, handler: 'download' });
+  assert.equal(await off.ctx.setSleepCard(false, 2), 'restored');
+  assert.deepEqual([...off.files.get('/sleep.bmp')], [...theirs]);
+  assert.deepEqual(off.deletes, []);
+  assert.ok(off.device.events['sleep.enter'].request);
+  assert.match(off.device.events['sleep.enter'].request.url, /v=1\.7\.0/);
+
+  const foreign = await slotWorld({ slot: theirs, handler: 'download' });
+  assert.equal(await foreign.ctx.setSleepCard(false, 3), 'kept');
+  assert.deepEqual(foreign.deletes, []);
+  assert.deepEqual([...foreign.files.get('/sleep.bmp')], [...theirs]);
+
+  const ours = await slotWorld({ slot: bmpCard(528, 792), handler: 'download' });
+  assert.equal(await ours.ctx.setSleepCard(false, 2), 'cleared');
+  assert.deepEqual(ours.deletes, ['/sleep.bmp']);
+});
+
+test('turning the card on backs up a foreign picture first', async () => {
+  const theirs = new Uint8Array([0x42, 0x4d, 9, 9]);
+  const on = await slotWorld({ slot: theirs });
+  assert.equal(await on.ctx.setSleepCard(true, 3), 'on');
+  assert.deepEqual([...on.files.get('/.crosspoint/plugins/ybx/sleep-original.bmp')], [...theirs]);
+  assert.ok(on.device.events['sleep.enter'].download);
+  assert.deepEqual(on.settings.map((item) => item.sleepScreen), [2]);
+});
+
+test('opening the page removes a card left by an always-on version, and only that', async () => {
+  const left = await slotWorld({ slot: bmpCard(480, 800) });
+  assert.equal(await left.ctx.reconcileSleepCard(), false);
+  assert.deepEqual(left.deletes, ['/sleep.bmp']);
+
+  const theirs = await slotWorld({ slot: new Uint8Array([0x42, 0x4d, 7]) });
+  await theirs.ctx.reconcileSleepCard();
+  assert.deepEqual(theirs.deletes, []);
+  assert.deepEqual(theirs.writes, []);
+});
+
+test('replacing a hand-configured server saves it for «Вернуть прежний KOSync»', async () => {
+  const host = syncScenario({ server: 'https://kosync.example.org', username: 'me' });
+  await host.context.syncButton.onclick();
+  assert.equal(host.saved.length, 1);
+  assert.equal(host.saved[0][1].koServerUrl, 'https://kosync.example.org');
+  assert.equal(host.saved[0][1].koUsername, 'me');
+  assert.equal('koPassword' in host.saved[0][1], false);
+  assert.equal(host.context.restoreButton.hidden, false);
+  assert.match(host.confirmations[0], /Вернуть прежний KOSync/);
+});
+
+test('an empty server is named as the CrossPoint Sync cloud and its one-way mirror explained', async () => {
+  const host = syncScenario({ server: '', username: '' });
+  await host.context.syncButton.onclick();
+  assert.match(host.confirmations[0], /облако CrossPoint Sync/);
+  assert.match(host.confirmations[0], /только в одну сторону/);
 });

@@ -220,18 +220,48 @@ CrossPoint.registerPlugin(async (container, api) => {
     if (!res.ok) throw new Error('settings HTTP ' + res.status);
   };
   const settingValue = (settings, key) => settings.find((item) => item.key === key)?.value;
-  // Either YBX spelling counts as configured: a person who typed the address the
-  // cabinet shows is already syncing through us, and calling that «выключен»
-  // would offer to overwrite a working setting and hide the key re-login needs.
-  const isYbxSyncUrl = (value) => {
-    if (!value) return false;
-    if (value === KOSYNC_URL) return true;
+  // These endpoints belong to the same service but NOT the same auth scheme:
+  // account KOSync uses an account/device key; the plugin endpoint uses cp_.
+  // Legacy HTTP remains supported on OPDS/sync hosts for TLS-limited readers.
+  const syncMode = (settings) => {
+    const address = settingValue(settings, 'koServerUrl');
+    if (typeof address !== 'string' || !address) return 'other';
     try {
-      const url = new URL(value);
-      return YBX_SYNC_HOSTS.includes(url.hostname) && url.pathname.includes('kosync');
-    } catch { return false; }
+      const url = new URL(address);
+      if (url.username || url.password || url.search || url.hash || url.port) return 'other';
+      if (!['my.ybx.app', 'ybx.app', 'opds.ybx.app', 'sync.ybx.app'].includes(url.hostname)) {
+        return 'other';
+      }
+      const path = url.pathname.replace(/\/+$/, '') || '/';
+      if (url.protocol === 'https:' && path === '/api/v1/crosspoint/kosync') {
+        return 'plugin';
+      }
+      // Caddy serves both schemes on OPDS/sync; primary/cabinet hosts
+      // redirect HTTP, which old readers may not follow.
+      const legacyHost = ['opds.ybx.app', 'sync.ybx.app'].includes(url.hostname);
+      if (path === '/kosync' &&
+          (url.protocol === 'https:' || (legacyHost && url.protocol === 'http:'))) {
+        return 'account';
+      }
+    } catch { /* malformed URL must not be classified as configured */ }
+    return 'other';
   };
-  const pointsToYbx = (settings) => isYbxSyncUrl(settingValue(settings, 'koServerUrl'));
+  const pointsToYbx = (settings) => syncMode(settings) === 'plugin';
+  const verifyPluginSync = async () => {
+    // Firmware hides koPassword from GET /api/settings: validate the visible
+    // fields and separately validate the issued token with the real endpoint.
+    // Neither establishes that the *stored* password works on the reader.
+    const stored = await readSettings({ required: true });
+    if (!pointsToYbx(stored) || settingValue(stored, 'koUsername') !== 'ybx') {
+      throw new Error('ридер не сохранил адрес или пользователя YBX');
+    }
+    const result = await api.relay('GET', KOSYNC_URL + '/users/auth',
+      { Authorization: 'Basic ' + btoa('ybx:' + token.access_token) }, '');
+    if (!result || result.status !== 200) {
+      throw new Error('сервер не подтвердил ключ синхронизации (HTTP '
+        + (result && result.status || 'нет ответа') + ')');
+    }
+  };
   const version = async () => {
     try {
       const res = await fetch(api.pluginFile('manifest.json'), { cache: 'no-store' });
@@ -693,8 +723,10 @@ CrossPoint.registerPlugin(async (container, api) => {
     const syncValue = document.createElement('span');
     syncValue.className = 'ybx-value';
     const current = await readSettings();
-    const synced = pointsToYbx(current);
-    syncValue.textContent = synced ? 'включён' : 'выключен';
+    const mode = syncMode(current);
+    syncValue.textContent = mode === 'plugin' ? 'YBX · через плагин'
+      : mode === 'account' ? 'YBX · отдельный аккаунт'
+      : 'не настроено через YBX';
     syncRow.append(syncLabel, syncValue);
     rows.appendChild(sleepRow);
     // Shown only while the mode that also draws the card is selected: it is the
@@ -718,25 +750,26 @@ CrossPoint.registerPlugin(async (container, api) => {
     const syncButton = document.createElement('button');
     syncButton.type = 'button';
     syncButton.className = 'primary';
-    syncButton.textContent = synced ? 'Обновить ключ KOReader Sync' : 'Настроить KOReader Sync';
+    syncButton.textContent = mode === 'plugin' ? 'Обновить ключ KOReader Sync'
+      : mode === 'account' ? 'Перейти на KOSync через плагин'
+      : 'Настроить KOReader Sync';
     syncButton.disabled = !token;
     syncButton.onclick = async () => {
       syncButton.disabled = true;
       try {
         const latest = await readSettings({ required: true });
-        if (pointsToYbx(latest)) {
-          // Firmware intentionally masks koPassword in GET /api/settings.
-          // After a new QR login the old KOSync key may have expired or been
-          // revoked even though koServerUrl still points to YBX.
-          if (!window.confirm('Обновить ключ KOReader Sync для текущего входа YBX?\n\n'
-              + 'Будет изменён только пароль синхронизации. Прогресс чтения, сервер и другие настройки останутся без изменений.')) {
+        if (pointsToYbx(latest) && settingValue(latest, 'koUsername') === 'ybx') {
+          if (!window.confirm('Обновить ключ синхронизации через плагин YBX?\n\n'
+              + 'Будет изменён только пароль этого режима. Сервер и другие настройки сохранятся.')) {
             message('Обновление ключа отменено. Настройки не изменены.');
             return;
           }
           await writeSettings({ koPassword: token.access_token });
-          syncValue.textContent = 'включён';
+          await verifyPluginSync();
+          syncValue.textContent = 'YBX · через плагин';
           syncButton.textContent = 'Обновить ключ KOReader Sync';
-          message('Ключ KOReader Sync обновлён для текущего входа YBX.', 'ok');
+          message('Адрес сохранён, сервер принимает токен. Проверьте '
+            + 'фактическую синхронизацию позиции на ридере.', 'ok');
           return;
         }
         let server = 'не указан';
@@ -747,7 +780,12 @@ CrossPoint.registerPlugin(async (container, api) => {
             server = url.origin + url.pathname;
           } catch { server = 'настроен другой сервер'; }
         }
-        if (!window.confirm('Настроить синхронизацию с YBX?\n\nТекущий сервер: ' + server
+        const legacy = syncMode(latest) === 'account';
+        if (!window.confirm((legacy
+          ? 'Сейчас используется самостоятельный KOSync аккаунта YBX. '
+            + 'Его ключ не будет изменён. Перейти на режим синхронизации через плагин?'
+          : 'Настроить синхронизацию через плагин YBX?')
+          + '\n\nТекущий сервер: ' + server
           + '\n\nБудут заменены адрес сервера, имя пользователя, пароль и параметры '
           + 'синхронизации на этом ридере. Сохранённый прогресс на прежнем сервере не удаляется.'
           + '\n\nПродолжить?')) {
@@ -764,20 +802,14 @@ CrossPoint.registerPlugin(async (container, api) => {
           koSyncBehavior: 1,
           koSendMetadata: 1,
         });
-        // A POST being accepted is not a setting written: firmware answers 200
-        // and drops keys it does not know, so without this read-back a person is
-        // told «Готово» while the reader still reports to its own default server.
-        const landed = settingValue(await readSettings({ required: true }), 'koServerUrl');
-        if (!isYbxSyncUrl(landed)) {
-          syncValue.textContent = 'выключен';
-          syncButton.textContent = 'Настроить KOReader Sync';
-          message('Ридер не принял адрес YBX — в настройках осталось «'
-            + (landed || 'не указан') + '». Обновите прошивку или впишите адрес вручную.', 'err');
-          return;
-        }
-        syncValue.textContent = 'включён';
+        // POST may succeed while firmware drops unknown keys. The readback
+        // validates visible settings; server auth validates the token itself.
+        // Only the reader's next sync proves its masked password was stored.
+        await verifyPluginSync();
+        syncValue.textContent = 'YBX · через плагин';
         syncButton.textContent = 'Обновить ключ KOReader Sync';
-        message('Готово: позиция синхронизируется через YBX.', 'ok');
+        message('Адрес сохранён, сервер принимает токен. Проверьте '
+          + 'фактическую синхронизацию позиции на ридере.', 'ok');
       } catch (error) {
         message('Не удалось настроить синхронизацию: ' + error.message, 'err');
       } finally {
@@ -1127,8 +1159,9 @@ CrossPoint.registerPlugin(async (container, api) => {
       }
       try {
         const cleanupWarnings = [];
-        // Reading settings must not silently turn a network/SD error into
-        // "KOSync not configured". Clear its credentials when possible.
+        // Only clear credentials for the plugin's own endpoint: ordinary
+        // account KOSync (including HTTP-only legacy readers) is independent.
+        // A settings read failure must not silently become an empty setting.
         try {
           const response = await fetch('/api/settings', { cache: 'no-store' });
           if (!response.ok) throw new Error('HTTP ' + response.status);

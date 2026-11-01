@@ -54,9 +54,9 @@
 - **Settings → YBX → Экран сна** — переключатель: «Включать» ставит
   `sleepScreen = CUSTOM` («Свой»), «Выключить» — `COVER` («Обложка»); режим
   подписан словами.
-- «Обложка + Свой» тоже рисует карточку, когда сон не из книги (или у книги нет
-  обложки) — отсюда «выключил, а она приходит»; плагин называет режим и
-  подсказывает, что переключатель его выключит.
+- «Обложка + Свой» тоже рисует карточку, когда сон не из книги (или нет обложки), —
+  отсюда «выключил, а она приходит»; плагин называет режим и показывает, что
+  переключатель его выключит.
 
 ## Выгрузка облачной статистики в ридер (vCodex)
 
@@ -86,9 +86,10 @@
 Кроме экрана ридера у плагина есть страница в web-интерфейсе устройства
 (**Settings → YBX**):
 
-- **KOReader Sync одной кнопкой** — включает встроенную синхронизацию позиции
-  с device-scoped KOSync YBX (`/api/v1/crosspoint/kosync`) без ручного ввода
-  сервера и пароля;
+- **KOReader Sync одной кнопкой** — пишет адрес YBX (`/api/v1/crosspoint/kosync`)
+  и перечитывает настройку: прошивка может отбросить ключ, и тогда кнопка
+  скажет об этом, а не «Готово». Адрес, который показывает кабинет
+  (`http://opds.ybx.app/kosync`), тоже считается настроенным — его не перезаписывают;
 - **Проверить обновление / Обновить** — страница проверяет релиз сама при
   открытии и показывает баннер; кнопка берёт сборку из релизов YBX
   (`/crosspoint-plugin/latest.json`), без Plugin Hub;
@@ -102,9 +103,12 @@
 Для синхронизации позиции чтения во время чтения:
 1. Перейдите в **Настройки → Подключения → KOReader Sync**.
 2. Включите синхронизацию.
-3. Сервер: `https://my.ybx.app/kosync/`
-4. Логин и пароль: идентификатор и ключ вашего ридера (доступны в личном кабинете).
-5. Включите опцию **Отправлять метаданные книг** (*Send book metadata*). Метаданные из файла `<книга>.meta.json` будут автоматически привязываться к прогрессу.
+3. Сервер: адрес с кнопки плагина или `http://opds.ybx.app/kosync` — оба наши. Пустое
+   поле означает CrossPoint Sync: он только пересылает позиции к нам и сам за позицией
+   не обращается, поэтому прогресс из Яндекса обратно не придёт.
+4. Логин и пароль: идентификатор и ключ ридера из личного кабинета.
+5. Включите **Отправлять метаданные книг** — метаданные из `<книга>.meta.json`
+   привяжутся к прогрессу.
 
 ## Поддерживаемые устройства
 
@@ -121,9 +125,9 @@
 
 | Ответ каталога | Экран и действие |
 | --- | --- |
-| 401 (неизвестный, истёкший или отозванный токен); 403 также обрабатывается прошивкой | Экран входа `NO_TOKEN`; подтвердите вход для новой QR-привязки. Старый файл токена сохраняется. |
-| 409 `books_consent_required` (поиск, EPUB) | Общая ошибка; подключите Яндекс Книги в кабинете, токен сохранён. Полки вместо ошибки дают строку «Подключите Яндекс Книги в кабинете YBX» с шагами. |
-| 404 + `X-YBX-Device-Removed: true` | Ридер удалён в кабинете; общая ошибка загрузки. Локальные книги и токен сохраняются, автоматической QR-привязки нет. Для повторного подключения удалите только `token.json` этого плагина на SD и откройте плагин. |
+| 401 (неизвестный, истёкший или отозванный токен); 403 прошивка тоже обрабатывает | Экран входа `NO_TOKEN`; подтвердите вход для новой QR-привязки, старый токен сохраняется. |
+| 409 `books_consent_required` (поиск, EPUB) | Общая ошибка; подключите Яндекс Книги в кабинете (токен сохранён). Полки вместо ошибки дают ту же строку с шагами. |
+| 404 + `X-YBX-Device-Removed: true` | Ридер удалён в кабинете; общая ошибка загрузки. Книги и токен на SD остаются, автоматической привязки нет: для новой удалите `token.json` плагина и откройте его. |
 | Обычный 404 | Нет книги или плагин отключён на сервере; маркера удаления нет. |
 | 429 + `Retry-After: 60` | Общая ошибка; подождите минуту и повторите. Прошивка не использует `Retry-After` автоматически. |
 | 502 | Библиотека временно недоступна; повторите позже. |
@@ -132,9 +136,9 @@
 
 Лимиты на 60 секунд (токен/аккаунт): каталог и поиск 180/600, EPUB 20/60, события 120/360. Одновременно допускается 2 загрузки на аккаунт и 8 всего; превышение возвращает 429.
 
-При опросе авторизации `authorization_pending` продолжает ожидание, `slow_down` добавляет 5 секунд к интервалу; `expired_token` и `access_denied` показывают ошибку входа. Неизвестные ошибки (включая `invalid_grant`) ожидают до конца срока кода. Ответ токена содержит `expires_in=7776000`, но прошивка сохраняет только `access_token`, без refresh token.
+Опрос авторизации: `authorization_pending` ждёт дальше, `slow_down` добавляет 5 с, `expired_token` и `access_denied` показывают ошибку входа, неизвестные ошибки (в том числе `invalid_grant`) ждут до конца срока кода. Ответ несёт `expires_in=7776000`, прошивка сохраняет только `access_token`.
 
-В проверенной прошивке TLS не проверяет сертификат сервера (`setInsecure()`). Используйте доверенную сеть, защищайте SD-карту и удаляйте потерянный ридер в кабинете. Скопированный токен даёт доступ до истечения срока или отзыва.
+TLS в проверенной прошивке не проверяет сертификат (`setInsecure()`): держите ридер в доверенной сети и удаляйте потерянный в кабинете; скопированный токен даёт доступ до отзыва.
 
 Проверка: [tests/VALIDATION.md](tests/VALIDATION.md). Контракт: [CROSSPOINT_PLUGIN_API.md](../../../../docs/CROSSPOINT_PLUGIN_API.md).
 
@@ -145,30 +149,19 @@
 Сервер исправляет полку «Читаю» для начатых pending-книг и дополняет карточки
 прогрессом, серией и библиографией. KOSync предупреждает о замене адреса, логина
 и параметров; отмена сохраняет настройки, уже настроенный YBX не перезаписывается.
-
-Вложенные папки, обложки JSON-карточек и меню действий требуют доработки
-прошивки. Полное дерево провайдеров, полок и серий доступно через OPDS.
+Вложенные папки, обложки JSON-карточек и меню действий ждут прошивку; полное
+дерево полок и серий доступно через OPDS.
 
 ## WB Books in 1.5.0
 
-Connect WB Books in the YBX account cabinet, then open the WB Books catalog
-in the plugin. Only EPUB entries from that account's library are offered.
-The search covers Yandex Books and a connected WB library. Subscription
-access is enforced by WB when YBX requests the file; appearing in the library
-does not guarantee that every title is downloadable.
-
-WB credentials remain on the server. CrossPoint receives the EPUB stream
-through YBX, with the configured server download-size limit. Expired WB
-authorization is refreshed once using the stored refresh token. If refresh
-fails, reconnect WB in the account cabinet. The firmware displays a generic
-fetch error for that response and keeps the plugin token.
-
-Book IDs beginning with `wb--` identify WB entries in sidecar metadata. New
-downloads use `{id} - {title}.epub` to prevent books with the same title from
-replacing one another. Existing files are not renamed. Metadata uses provider
-`ybx`; the book ID identifies the source. Old Yandex sidecars remain valid.
-
-WB and purchased LitRes EPUBs are also available in OPDS, with signed links.
+Connect WB Books in the account cabinet, then open the WB shelf in the plugin:
+only that library's EPUBs are offered, and WB itself decides whether a title is
+downloadable. Credentials stay on the server; CrossPoint receives the stream
+through YBX under the download-size limit, and an expired authorization is
+refreshed once — if that fails, reconnect WB in the cabinet. WB entries use
+`wb--` book IDs and `{id} - {title}.epub` filenames; metadata keeps provider `ybx`
+and old Yandex sidecars stay valid. WB
+and purchased LitRes EPUBs are also in OPDS with signed links.
 The library scan is bounded to 1,000 entries; larger libraries return an error.
 Physical-reader verification remains a separate check.
 
@@ -177,3 +170,8 @@ Physical-reader verification remains a separate check.
 Плагин сообщает о новой версии сам: полка каталога начинается с «Доступна
 YBX <версия>», карточка сна добавляет строку об обновлении, веб-настройки
 показывают баннер у кнопки «Обновить». Все запросы несут версию в `?v=`.
+
+В 1.6.6 кнопка KOReader Sync перечитывает настройку после записи и не обещает
+синхронизацию, если ридер адрес не принял; адрес из кабинета больше не «чужой».
+Кабинет предупреждает, когда позиции приносит только внешнее зеркало: оно
+одностороннее, и прогресс из Яндекса до ридера не дойдёт.

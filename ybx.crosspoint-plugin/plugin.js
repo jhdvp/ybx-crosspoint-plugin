@@ -15,6 +15,9 @@ CrossPoint.registerPlugin(async (container, api) => {
   const API = 'https://my.ybx.app';
   const UPDATE_URL = 'https://ybx.app/crosspoint-plugin/latest.json';
   const KOSYNC_URL = API + '/api/v1/crosspoint/kosync';
+  // The cabinet and the installer page hand out the catalogue-hosted address
+  // instead, and both routes answer for the same reader account.
+  const YBX_SYNC_HOSTS = ['my.ybx.app', 'ybx.app', 'opds.ybx.app'];
   // Firmware vCodex импортирует статистику из фиксированного файла: сначала
   // кладём его туда, где его ищет страница импорта в данных плагина, затем —
   // в путь, который читает Settings → Apps → Reading Stats.
@@ -217,7 +220,18 @@ CrossPoint.registerPlugin(async (container, api) => {
     if (!res.ok) throw new Error('settings HTTP ' + res.status);
   };
   const settingValue = (settings, key) => settings.find((item) => item.key === key)?.value;
-  const pointsToYbx = (settings) => settingValue(settings, 'koServerUrl') === KOSYNC_URL;
+  // Either YBX spelling counts as configured: a person who typed the address the
+  // cabinet shows is already syncing through us, and calling that «выключен»
+  // would offer to overwrite a working setting and hide the key re-login needs.
+  const isYbxSyncUrl = (value) => {
+    if (!value) return false;
+    if (value === KOSYNC_URL) return true;
+    try {
+      const url = new URL(value);
+      return YBX_SYNC_HOSTS.includes(url.hostname) && url.pathname.includes('kosync');
+    } catch { return false; }
+  };
+  const pointsToYbx = (settings) => isYbxSyncUrl(settingValue(settings, 'koServerUrl'));
   const version = async () => {
     try {
       const res = await fetch(api.pluginFile('manifest.json'), { cache: 'no-store' });
@@ -750,6 +764,17 @@ CrossPoint.registerPlugin(async (container, api) => {
           koSyncBehavior: 1,
           koSendMetadata: 1,
         });
+        // A POST being accepted is not a setting written: firmware answers 200
+        // and drops keys it does not know, so without this read-back a person is
+        // told «Готово» while the reader still reports to its own default server.
+        const landed = settingValue(await readSettings({ required: true }), 'koServerUrl');
+        if (!isYbxSyncUrl(landed)) {
+          syncValue.textContent = 'выключен';
+          syncButton.textContent = 'Настроить KOReader Sync';
+          message('Ридер не принял адрес YBX — в настройках осталось «'
+            + (landed || 'не указан') + '». Обновите прошивку или впишите адрес вручную.', 'err');
+          return;
+        }
         syncValue.textContent = 'включён';
         syncButton.textContent = 'Обновить ключ KOReader Sync';
         message('Готово: позиция синхронизируется через YBX.', 'ok');

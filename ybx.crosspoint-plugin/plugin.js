@@ -386,8 +386,37 @@ CrossPoint.registerPlugin(async (container, api) => {
     }
   }
 
+  // Web settings run in the PHONE/COMPUTER browser, not in the ESP32
+  // network stack. Send reader profile requests to YBX over browser HTTPS.
   const relay = async (path, auth) => {
-    const res = await api.relay('GET', API + path, { Authorization: 'Bearer ' + auth }, '');
+    const headers = { Authorization: 'Bearer ' + auth };
+    const profilePath = path.startsWith('/api/v1/crosspoint/reading/summary')
+      || path.startsWith('/api/v1/crosspoint/reading/calendar')
+      || path.startsWith('/api/v1/crosspoint/achievements')
+      || path.startsWith('/api/v1/crosspoint/reading/books/');
+    if (profilePath) {
+      let response;
+      try {
+        response = await fetch(API + path, {
+          method: 'GET', headers, mode: 'cors', cache: 'no-store',
+          credentials: 'omit',
+        });
+      } catch (cause) {
+        const error = new Error('браузер не смог подключиться к YBX по HTTPS. '
+          + 'Проверьте интернет на телефоне и разрешения CORS.');
+        error.network = true;
+        error.cause = cause;
+        throw error;
+      }
+      if (!response.ok) {
+        const error = new Error('HTTP ' + response.status);
+        error.status = response.status;
+        try { error.detail = (await response.json()).detail; } catch (ignored) {}
+        throw error;
+      }
+      return response.json();
+    }
+    const res = await api.relay('GET', API + path, headers, '');
     if (!res || res.status < 200 || res.status >= 300) {
       const error = new Error('HTTP ' + (res && res.status));
       error.status = res && res.status;
@@ -744,7 +773,7 @@ CrossPoint.registerPlugin(async (container, api) => {
   const COVER_MODE = 3;        // CrossPointSettings::SLEEP_SCREEN_MODE::COVER
   const COVER_CUSTOM_MODE = 4; // ...::COVER_CUSTOM — the card when sleep is not from a book
   // Версию в адресах берём из device.json ридера: сборка 1.7.0 подставляет свою.
-  const handlerVersion = (device) => (String(device?.download?.url || '').match(/[?&]v=([^&]+)/) || [])[1] || '1.6.12';
+  const handlerVersion = (device) => (String(device?.download?.url || '').match(/[?&]v=([^&]+)/) || [])[1] || '1.6.13';
   const sleepDownloadHandler = (v) => ({
     url: API + '/api/v1/crosspoint/sleep-image?w={cfg.sleep_width}&h={cfg.sleep_height}&v=' + v,
     headers: { Authorization: 'Bearer {token}' },
@@ -1622,6 +1651,9 @@ CrossPoint.registerPlugin(async (container, api) => {
       } else if (error.status === 401) {
         message('Сессия плагина недействительна. Откройте Home → Plugins → YBX и войдите заново.', 'err');
         renderSignedOut();
+      } else if (error.network) {
+        message('Не удалось получить статистику с YBX из браузера телефона. '
+          + 'Повторно привязывать ридер не нужно. ' + error.message, 'err');
       } else {
         message('Не удалось загрузить статистику: ' + error.message, 'err');
       }

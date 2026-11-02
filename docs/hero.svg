@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" width="1200" height="420" role="img" aria-label="YBX CrossPoint — ваши книги и прогресс на e-ink ридере">
+<defs><linearGradient id="g" x2="1" y2="1"><stop stop-color="#f6f8ef"/><stop offset="1" stop-color="#d7e3d9"/></linearGradient><pattern id="d" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="3" cy="3" r="1.1" fill="#46614c" opacity=".16"/></pattern></defs>
+<rect width="1200" height="420" rx="16" fill="url(#g)"/><rect width="1200" height="420" rx="16" fill="url(#d)"/>
+<rect x="44" y="34" width="53" height="53" rx="13" fill="#214b34"/><text x="70" y="70" font-family="Arial,sans-serif" font-weight="bold" font-size="25" text-anchor="middle" fill="#fff">Y</text>
+<text x="115" y="68" font-family="Arial,sans-serif" font-size="22" font-weight="bold" letter-spacing="3" fill="#214b34">YBX / CROSSPOINT</text>
+<path d="M44 104H763" stroke="#9ab29f"/>
+<text x="44" y="180" font-family="Arial,sans-serif" font-size="58" font-weight="700" letter-spacing="-2" fill="#183322">Твои книги.</text>
+<text x="44" y="244" font-family="Arial,sans-serif" font-size="58" font-weight="700" letter-spacing="-2" fill="#183322">Твой прогресс.</text>
+<text x="46" y="291" font-family="Arial,sans-serif" font-size="22" fill="#385744">Яндекс Книги + WB Книги · KOSync · e-ink</text>
+<rect x="44" y="348" width="157" height="34" rx="7" fill="#214b34"/><text x="122" y="370" font-family="Arial,sans-serif" text-anchor="middle" font-size="15" font-weight="700" fill="#fff">STABLE 1.6.12</text>
+<rect x="216" y="348" width="204" height="34" rx="7" fill="none" stroke="#527861"/><text x="318" y="370" font-family="Arial,sans-serif" font-size="14" text-anchor="middle" font-weight="700" fill="#31573d">FOR XTEINK READERS</text>
+<rect x="851" y="26" width="263" height="366" rx="23" fill="#647b6d" opacity=".2"/>
+<rect x="832" y="15" width="263" height="366" rx="23" fill="#f6f7ef" stroke="#335240" stroke-width="6"/>
+<rect x="853" y="42" width="221" height="277" fill="#eef3e9" stroke="#8da493"/>
+<text x="873" y="73" font-family="Arial,sans-serif" font-size="20" font-weight="700" fill="#273d2b">YBX</text><text x="1058" y="73" text-anchor="end" font-family="Arial,sans-serif" font-size="12" fill="#667b6a">02.11</text>
+<path d="M873 89H1057" stroke="#849d89"/><text x="874" y="115" font-family="Arial,sans-serif" font-size="12" font-weight="700" fill="#45664c">СЕГОДНЯ</text>
+<text x="870" y="166" font-family="Arial,sans-serif" font-size="52" font-weight="700" fill="#213b29">42</text><text x="945" y="162" font-family="Arial,sans-serif" font-size="16" fill="#405945">мин</text>
+<text x="873" y="199" font-family="Arial,sans-serif" font-size="12" fill="#405945">СЕРИЯ · 7 ДНЕЙ</text>
+<g fill="#315e40"><rect x="873" y="244" width="23" height="26"/><rect x="903" y="235" width="23" height="35"/><rect x="933" y="246" width="23" height="24"/><rect x="963" y="218" width="23" height="52"/><rect x="993" y="252" width="23" height="18"/><rect x="1023" y="228" width="23" height="42"/></g>
+<path d="M874 286H1055" stroke="#819886"/><text x="874" y="305" font-family="Arial,sans-serif" font-size="11" fill="#516953">СТАТИСТИКА ЧТЕНИЯ</text>
+<rect x="919" y="347" width="90" height="9" rx="5" fill="#bfd0c1" stroke="#76917b"/>
+</svg>

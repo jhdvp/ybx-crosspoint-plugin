@@ -735,13 +735,16 @@ CrossPoint.registerPlugin(async (container, api) => {
   // прошивка ничего не скачивает и слот остаётся нетронутым.
   const SLEEP_SLOT = '/sleep.bmp';
   const SLEEP_BACKUP = DIR + '/sleep-original.bmp';
+  const SLEEP_LEGACY_BACKUP = DIR + '/sleep-legacy.bmp';
+  // Stable across updates: never included in the release archive.
+  const SLEEP_PREFERENCE = DIR + '/sleep-preference.json';
   const SLEEP_DEVICE = DIR + '/device.json';
   const SLEEP_BACKUP_LIMIT = 256 * 1024;
   const CARD_MODE = 2;         // CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM
   const COVER_MODE = 3;        // CrossPointSettings::SLEEP_SCREEN_MODE::COVER
   const COVER_CUSTOM_MODE = 4; // ...::COVER_CUSTOM — the card when sleep is not from a book
   // Версию в адресах берём из device.json ридера: сборка 1.7.0 подставляет свою.
-  const handlerVersion = (device) => (String(device?.download?.url || '').match(/[?&]v=([^&]+)/) || [])[1] || '1.6.10';
+  const handlerVersion = (device) => (String(device?.download?.url || '').match(/[?&]v=([^&]+)/) || [])[1] || '1.6.12';
   const sleepDownloadHandler = (v) => ({
     url: API + '/api/v1/crosspoint/sleep-image?w={cfg.sleep_width}&h={cfg.sleep_height}&v=' + v,
     headers: { Authorization: 'Bearer {token}' },
@@ -760,10 +763,12 @@ CrossPoint.registerPlugin(async (container, api) => {
   };
   // The server writes «YBX1» into the BMP header's reserved words: only a file
   // carrying that mark is ours. A same-size wallpaper without it — including a
-  // card from a version before 1.6.10 — is never removed automatically.
-  const looksLikeSleepCard = (bytes, width, height) => {
+  // card from a version before 1.6.10 — is never removed automatically; the
+  // unmarked shape (zero reserved words) only offers the manual cleanup below.
+  const looksLikeSleepCard = (bytes, width, height, marked = true) => {
     if (!bytes || bytes.length < 62 || bytes[0] !== 0x42 || bytes[1] !== 0x4d) return false;
-    if (bytes[6] !== 0x59 || bytes[7] !== 0x42 || bytes[8] !== 0x58 || bytes[9] !== 0x31) return false;
+    const mark = marked ? [0x59, 0x42, 0x58, 0x31] : [0, 0, 0, 0];
+    if (mark.some((byte, i) => bytes[6 + i] !== byte)) return false;
     const dword = (at) => (bytes[at] | bytes[at + 1] << 8 | bytes[at + 2] << 16 | bytes[at + 3] << 24);
     return dword(2) === bytes.length && dword(10) === 62 && dword(28) === 1
       && Math.abs(dword(18)) === width && Math.abs(dword(22)) === height
@@ -771,6 +776,8 @@ CrossPoint.registerPlugin(async (container, api) => {
   };
   const ownsSleepSlot = (bytes) => SLEEP_PANELS
     .some(([width, height]) => looksLikeSleepCard(bytes, width, height));
+  const legacySleepCard = (bytes) => SLEEP_PANELS
+    .some(([width, height]) => looksLikeSleepCard(bytes, width, height, false));
 
   async function readSleepFile(path) {
     const res = await fetch('/download?path=' + encodeURIComponent(path), { cache: 'no-store' });
@@ -792,6 +799,14 @@ CrossPoint.registerPlugin(async (container, api) => {
     return device;
   }
   const sleepHandlerOn = (device) => Boolean(device?.events?.['sleep.enter']?.download);
+  async function saveSleepPreference(enabled) {
+    await api.writeFile(SLEEP_PREFERENCE, sleepBytes(new TextEncoder().encode(
+      JSON.stringify({ enabled, schema: 1 }) + '\n')));
+  }
+  async function readSleepPreference() {
+    const pref = await readJson(SLEEP_PREFERENCE);
+    return typeof pref?.enabled === 'boolean' ? pref.enabled : null;
+  }
   async function writeSleepHandler(device, enabled) {
     const v = handlerVersion(device);
     // Off means no sleep.enter handler at all: no network work before sleep.
@@ -827,6 +842,11 @@ CrossPoint.registerPlugin(async (container, api) => {
     }
     // Своей картинки до YBX не было: убираем свой же файл, чтобы ридер вернулся
     // к обоям из /.sleep. Чужой файл не удаляем — см. проверку выше.
+    await clearSleepSlot();
+    return 'cleared';
+  }
+
+  async function clearSleepSlot() {
     const removed = await fetch('/delete', {
       method: 'POST',
       body: new URLSearchParams({ path: SLEEP_SLOT }),
@@ -834,7 +854,31 @@ CrossPoint.registerPlugin(async (container, api) => {
     if (!removed.ok) {
       throw new Error('не удалось убрать карточку из /sleep.bmp (HTTP ' + removed.status + ')');
     }
-    return 'cleared';
+  }
+
+  // Карточки до 1.6.10 без метки: только по кнопке, с подтверждением и копией.
+  const legacyInSlot = async () => {
+    try { return legacySleepCard(await readSleepFile(SLEEP_SLOT)); } catch { return false; }
+  };
+  async function clearLegacySleepCard() {
+    if (sleepHandlerOn(await readSleepDevice())) return false;
+    const slot = await readSleepFile(SLEEP_SLOT);
+    if (!slot || !legacySleepCard(slot)) return false;
+    // Never overwrite a previous backup with different bytes. If cleanup was
+    // interrupted after backing up, the same image can safely be retried.
+    const backup = await readSleepFile(SLEEP_LEGACY_BACKUP);
+    if (backup) {
+      const identical = backup.length === slot.length
+        && backup.every((byte, index) => byte === slot[index]);
+      if (!identical) {
+        throw new Error('резервная копия ' + SLEEP_LEGACY_BACKUP
+          + ' уже существует и отличается. Сохраните её отдельно перед повторной очисткой.');
+      }
+    } else {
+      await api.writeFile(SLEEP_LEGACY_BACKUP, sleepBytes(slot));
+    }
+    await clearSleepSlot();
+    return true;
   }
 
   async function setSleepCard(enabled, sleepMode) {
@@ -842,6 +886,7 @@ CrossPoint.registerPlugin(async (container, api) => {
     if (enabled) {
       await installSleepCard(device);
       if (sleepMode !== CARD_MODE) await writeSettings({ sleepScreen: CARD_MODE });
+      await saveSleepPreference(true);
       return 'on';
     }
     const outcome = await removeSleepCard(device);
@@ -850,17 +895,34 @@ CrossPoint.registerPlugin(async (container, api) => {
     if (sleepMode === CARD_MODE || sleepMode === COVER_CUSTOM_MODE) {
       await writeSettings({ sleepScreen: COVER_MODE });
     }
+    await saveSleepPreference(false);
     return outcome;
   }
 
-  // Если обработчик выключен, а в слоте карточка с меткой YBX, убираем её при
-  // открытии страницы. Файлы без метки не трогаем.
-  async function reconcileSleepCard() {
+  // Update tools replace the bundled device.json. Restore only an explicitly
+  // enabled YBX card while firmware still selects its Custom sleep screen.
+  // Migration from 1.6.10/11 also uses a marked card already in /sleep.bmp.
+  // Never infer opt-in from an unmarked user image.
+  async function reconcileSleepCard(sleepMode) {
     if (!token) return null;
     const device = await readSleepDevice();
-    if (sleepHandlerOn(device)) return true;
+    const pref = await readSleepPreference();
+    if (sleepHandlerOn(device)) {
+      if (pref !== true) await saveSleepPreference(true);
+      return true;
+    }
+    // A failed /api/settings read yields NaN. Do not mistake that for an
+    // explicit user opt-out or destroy a persisted preference.
+    if (!Number.isInteger(sleepMode)) return false;
     const slot = await readSleepFile(SLEEP_SLOT);
+    if (sleepMode === CARD_MODE &&
+        (pref === true || (pref === null && slot && ownsSleepSlot(slot)))) {
+      await installSleepCard(device);
+      await saveSleepPreference(true);
+      return true;
+    }
     if (slot && ownsSleepSlot(slot)) await removeSleepCard(device);
+    if (pref === true) await saveSleepPreference(false);
     return false;
   }
 
@@ -1062,10 +1124,12 @@ CrossPoint.registerPlugin(async (container, api) => {
     // Переключатель — это сам обработчик sleep.enter в device.json ридера.
     let sleepCardEnabled = null;
     try {
-      sleepCardEnabled = sleepHandlerOn(await readSleepDevice());
+      sleepCardEnabled = await reconcileSleepCard(sleepMode);
     } catch (error) {
       sleepCardEnabled = null;
     }
+    // Карточка от версии до 1.6.10 без метки YBX1: убрать можно только вручную.
+    let legacyCard = sleepCardEnabled === false && await legacyInSlot();
     const sleepButton = document.createElement('button');
     sleepButton.type = 'button';
     sleepButton.className = 'primary';
@@ -1085,6 +1149,7 @@ CrossPoint.registerPlugin(async (container, api) => {
         }
         const outcome = await setSleepCard(turningOn, sleepMode);
         sleepCardEnabled = turningOn;
+        legacyCard = !turningOn && await legacyInSlot();
         if (turningOn) {
           sleepMode = CARD_MODE;
         } else if (sleepMode === CARD_MODE || sleepMode === COVER_CUSTOM_MODE) {
@@ -1122,8 +1187,34 @@ CrossPoint.registerPlugin(async (container, api) => {
       }
     };
 
+    const legacyButton = document.createElement('button');
+    legacyButton.type = 'button';
+    legacyButton.textContent = 'Убрать старую карточку YBX';
+    legacyButton.onclick = async () => {
+      if (!window.confirm('Похоже, в /sleep.bmp осталась карточка статистики от YBX до 1.6.10. '
+          + 'YBX сохранит её копию в ' + SLEEP_LEGACY_BACKUP + ' и уберёт из /sleep.bmp — '
+          + 'ридер снова возьмёт обои из /.sleep.\n\nЕсли это ваша картинка, нажмите «Отмена».')) {
+        message('Отменено: /sleep.bmp не тронут.');
+        return;
+      }
+      legacyButton.disabled = true;
+      try {
+        const cleared = await clearLegacySleepCard();
+        legacyCard = false;
+        message(cleared
+          ? 'Старая карточка убрана, копия — в ' + SLEEP_LEGACY_BACKUP + '.'
+          : 'В /sleep.bmp уже нет старой карточки — ничего не меняли.', 'ok');
+      } catch (error) {
+        message('Не удалось убрать старую карточку: ' + error.message, 'err');
+      } finally {
+        legacyButton.disabled = false;
+        paintSleepState();
+      }
+    };
+
     const paintSleepState = () => {
       const on = sleepCardEnabled === true;
+      legacyButton.hidden = !token || !legacyCard || sleepCardEnabled !== false;
       sleepValue.textContent = (SLEEP_MODES[sleepMode] || 'режим не определён')
         + (sleepCardEnabled === null ? ' · переключатель не прочитан'
           : on ? ' · статистика' : ' · обои ридера');
@@ -1329,6 +1420,24 @@ CrossPoint.registerPlugin(async (container, api) => {
         if (!old.ok) throw new Error('резервная копия ' + name + ': HTTP ' + old.status);
         backup.set(name, new Uint8Array(await old.arrayBuffer()));
       }
+      // The release's default device.json intentionally has no sleep.enter.
+      // Preserve the reader's actual choice instead of resetting the card at
+      // every in-page update. Preserve foreign handlers unmodified, too.
+      const installedDevice = JSON.parse(new TextDecoder().decode(backup.get('device.json')));
+      const previousSleep = installedDevice?.events?.['sleep.enter'];
+      if (previousSleep) {
+        const updateDevice = decode('device.json');
+        updateDevice.events ||= {};
+        const ourDownload = previousSleep.download
+          && previousSleep.download.dest === SLEEP_SLOT
+          && String(previousSleep.download.url || '').startsWith(
+            API + '/api/v1/crosspoint/sleep-image?');
+        updateDevice.events['sleep.enter'] = ourDownload
+          ? { download: sleepDownloadHandler(expectedVersion) }
+          : previousSleep;
+        bytes.set('device.json', new TextEncoder().encode(
+          JSON.stringify(updateDevice, null, 2) + '\n'));
+      }
       const encode = (data) => {
         let binary = '';
         for (let i = 0; i < data.length; i += 8192) {
@@ -1452,7 +1561,7 @@ CrossPoint.registerPlugin(async (container, api) => {
         signOutButton.disabled = false;
       }
     };
-    actions.append(sleepButton, sleepCardButton, statsButton, syncButton, restoreButton, checkButton, updateButton, signOutButton);
+    actions.append(sleepButton, sleepCardButton, legacyButton, statsButton, syncButton, restoreButton, checkButton, updateButton, signOutButton);
     settings.appendChild(rows);
     settings.appendChild(statsHint);
     settings.appendChild(updateBanner);
@@ -1500,7 +1609,6 @@ CrossPoint.registerPlugin(async (container, api) => {
           .catch(() => ({ yandex: { received: [], pending: [] } })),
       ]);
       renderProfile(summary, calendar, achievements);
-      try { await reconcileSleepCard(); } catch { /* переключатель покажет причину */ }
       await loadProfile();
       message('Ридер подключён к YBX. Каталог — Home → Plugins → YBX.', 'ok');
     } catch (error) {

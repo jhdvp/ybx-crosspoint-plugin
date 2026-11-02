@@ -24,14 +24,16 @@ const logout = extract('    signOutButton.onclick = async () => {', '\n    actio
 
 const sleepConsts = extract('    const SLEEP_MODES =', '\n    const sleepButton =');
 const sleepToggle = extract('    sleepButton.onclick = async () => {', '\n    const sleepCardButton =');
-const sleepPaint = extract('    const paintSleepState = () => {', '\n    paintSleepState();');
+const sleepLegacy = extract('    const legacyButton =', '\n    paintSleepState();');
 // The page reads the switch from the reader's own device.json, so the slices
 // run inside an async wrapper with the file helpers mocked.
-const sleepRuntime = '(async () => {\n' + sleepConsts + sleepToggle + sleepPaint
-  + '\npaintSleepState();\nglobalThis.sleepMode = () => sleepMode;\n})()';
+const sleepRuntime = '(async () => {\n' + sleepConsts + sleepToggle + sleepLegacy
+  + '\npaintSleepState();\nglobalThis.sleepMode = () => sleepMode;'
+  + '\nglobalThis.legacyButton = legacyButton;\n})()';
 
 async function sleepSettings({ mode = 3, cardOn = false, token = { access_token: 'cp_test' },
-                               failure = null, slot = null, confirm = true } = {}) {
+                               failure = null, slot = null, confirm = true,
+                               legacy = false } = {}) {
   const calls = [];
   const messages = [];
   let handlerOn = cardOn;
@@ -47,9 +49,14 @@ async function sleepSettings({ mode = 3, cardOn = false, token = { access_token:
     window: { confirm: () => confirm },
     message: (text, kind) => messages.push([kind || 'info', text]),
     readSleepDevice: async () => ({ events: {} }),
+    reconcileSleepCard: async () => handlerOn,
     sleepHandlerOn: () => handlerOn,
     readSleepFile: async () => slot,
     ownsSleepSlot: (bytes) => bytes === 'ours',
+    legacyInSlot: async () => legacy,
+    SLEEP_LEGACY_BACKUP: '/.crosspoint/plugins/ybx/sleep-legacy.bmp',
+    clearLegacySleepCard: async () => { calls.push(['legacy']); legacy = false; return true; },
+    document: { createElement: () => ({}) },
     setSleepCard: async (enabled, currentMode) => {
       if (failure) throw new Error(failure);
       calls.push([enabled, currentMode]);
@@ -518,10 +525,12 @@ function bmpCard(width, height) {
   return bytes;
 }
 
-async function slotWorld({ slot = null, backup = null, handler = 'request', token = { access_token: 'cp_x' } } = {}) {
+async function slotWorld({ slot = null, backup = null, legacyBackup = null, preference = null,
+                           handler = 'request', token = { access_token: 'cp_x' } } = {}) {
   const files = new Map();
   if (slot) files.set('/sleep.bmp', slot);
   if (backup) files.set('/.crosspoint/plugins/ybx/sleep-original.bmp', backup);
+  if (legacyBackup) files.set('/.crosspoint/plugins/ybx/sleep-legacy.bmp', legacyBackup);
   const device = { browse: { lists_url: 'x' }, auth: { type: 'device_code' },
     download: { url: 'https://my.ybx.app/api/v1/crosspoint/books/{id}/download?v=1.7.0' },
     events: { 'sleep.enter': handler === 'download' ? { download: {} } : { request: {} } } };
@@ -532,7 +541,9 @@ async function slotWorld({ slot = null, backup = null, handler = 'request', toke
     DIR: '/.crosspoint/plugins/ybx', API: 'https://my.ybx.app', token,
     TextEncoder, Uint8Array, String, Boolean, Math, JSON, Error, URLSearchParams, encodeURIComponent,
     btoa: (s) => Buffer.from(s, 'binary').toString('base64'),
-    readJson: async () => JSON.parse(JSON.stringify(device)),
+    readJson: async (path) => path.endsWith('sleep-preference.json')
+      ? (preference === null ? null : { enabled: preference, schema: 1 })
+      : JSON.parse(JSON.stringify(device)),
     writeSettings: async (value) => settings.push(value),
     api: { writeFile: async (path, b64) => {
       const bytes = new Uint8Array(Buffer.from(b64, 'base64'));
@@ -547,7 +558,8 @@ async function slotWorld({ slot = null, backup = null, handler = 'request', toke
     },
   });
   await vm.runInContext('(async () => {\n' + sleepSlot
-    + '\nObject.assign(globalThis, { setSleepCard, reconcileSleepCard, ownsSleepSlot });\n})()', ctx);
+    + '\nObject.assign(globalThis, { setSleepCard, reconcileSleepCard, ownsSleepSlot,'
+    + ' clearLegacySleepCard, legacyInSlot });\n})()', ctx);
   return { ctx, files, writes, deletes, settings, device };
 }
 
@@ -580,11 +592,11 @@ test('turning the card on backs up a foreign picture first', async () => {
 
 test('opening the page removes a card left by an always-on version, and only that', async () => {
   const left = await slotWorld({ slot: bmpCard(480, 800) });
-  assert.equal(await left.ctx.reconcileSleepCard(), false);
+  assert.equal(await left.ctx.reconcileSleepCard(3), false);
   assert.deepEqual(left.deletes, ['/sleep.bmp']);
 
   const theirs = await slotWorld({ slot: new Uint8Array([0x42, 0x4d, 7]) });
-  await theirs.ctx.reconcileSleepCard();
+  await theirs.ctx.reconcileSleepCard(3);
   assert.deepEqual(theirs.deletes, []);
   assert.deepEqual(theirs.writes, []);
 });
@@ -617,4 +629,100 @@ test('a same-size monochrome wallpaper without the YBX mark is never treated as 
   const off = await slotWorld({ slot: lookalike, handler: 'download' });
   assert.equal(await off.ctx.setSleepCard(false, 2), 'kept');
   assert.deepEqual(off.deletes, []);
+});
+
+test('a card from before 1.6.10 is removed only by hand, with a copy kept', async () => {
+  const old = bmpCard(480, 800);
+  old.set([0, 0, 0, 0], 6);
+  const world = await slotWorld({ slot: old });
+  assert.equal(await world.ctx.legacyInSlot(), true);
+  assert.equal(await world.ctx.clearLegacySleepCard(), true);
+  assert.deepEqual([...world.files.get('/.crosspoint/plugins/ybx/sleep-legacy.bmp')], [...old]);
+  assert.deepEqual(world.deletes, ['/sleep.bmp']);
+
+  // A marked card, a foreign picture and a live switch are all left alone.
+  for (const [slot, handler] of [[bmpCard(480, 800), 'request'],
+    [new Uint8Array([0x42, 0x4d, 7]), 'request'], [old, 'download']]) {
+    const other = await slotWorld({ slot, handler });
+    assert.equal(await other.ctx.clearLegacySleepCard(), false);
+    assert.deepEqual(other.deletes, []);
+    assert.deepEqual(other.writes, []);
+  }
+});
+
+test('the old-card button shows only with the switch off and asks first', async () => {
+  const hidden = await sleepSettings({ mode: 3, cardOn: true, legacy: true });
+  assert.equal(hidden.context.legacyButton.hidden, true);
+
+  const declined = await sleepSettings({ mode: 3, legacy: true, confirm: false });
+  assert.equal(declined.context.legacyButton.hidden, false);
+  await declined.context.legacyButton.onclick();
+  assert.deepEqual(declined.calls, []);
+  assert.match(declined.messages.at(-1)[1], /не тронут/);
+
+  const screen = await sleepSettings({ mode: 3, legacy: true });
+  await screen.context.legacyButton.onclick();
+  assert.deepEqual(screen.calls, [['legacy']]);
+  assert.match(screen.messages.at(-1)[1], /sleep-legacy\.bmp/);
+  assert.equal(screen.context.legacyButton.hidden, true);
+});
+
+
+test('legacy cleanup refuses to overwrite a different pre-existing backup', async () => {
+  const slot = bmpCard(480, 800);
+  slot.set([0, 0, 0, 0], 6);
+  const preserved = new Uint8Array([0x42, 0x4d, 42]);
+  const world = await slotWorld({ slot, legacyBackup: preserved });
+  await assert.rejects(world.ctx.clearLegacySleepCard(), /резервная копия.*уже существует/);
+  assert.deepEqual([...world.files.get('/.crosspoint/plugins/ybx/sleep-legacy.bmp')], [...preserved]);
+  assert.deepEqual([...world.files.get('/sleep.bmp')], [...slot]);
+  assert.deepEqual(world.deletes, []);
+  assert.deepEqual(world.writes, []);
+});
+
+test('legacy cleanup is retryable when backup already contains this exact image', async () => {
+  const slot = bmpCard(480, 800);
+  slot.set([0, 0, 0, 0], 6);
+  const world = await slotWorld({ slot, legacyBackup: slot.slice() });
+  assert.equal(await world.ctx.clearLegacySleepCard(), true);
+  assert.deepEqual(world.writes, []);
+  assert.deepEqual(world.deletes, ['/sleep.bmp']);
+});
+
+
+test('an enabled sleep card survives an external device.json replacement', async () => {
+  const card = bmpCard(480, 800);
+  const world = await slotWorld({ slot: card, preference: true });
+  assert.equal(await world.ctx.reconcileSleepCard(2), true);
+  assert.ok(world.device.events['sleep.enter']?.download, 'sleep handler restored');
+  assert.deepEqual(world.deletes, []);
+  assert.equal(world.files.get('/sleep.bmp'), card);
+});
+
+test('upgrade from 1.6.11 can recover enabled sleep from its marked card and custom mode', async () => {
+  const old = await slotWorld({ slot: bmpCard(528, 792) });
+  assert.equal(await old.ctx.reconcileSleepCard(2), true);
+  assert.ok(old.device.events['sleep.enter']?.download);
+  assert.ok(old.files.has('/.crosspoint/plugins/ybx/sleep-preference.json'));
+  assert.deepEqual(old.deletes, []);
+});
+
+test('a disabled card stays disabled after upgrade even with a stale marked image', async () => {
+  const off = await slotWorld({ slot: bmpCard(480, 800), preference: false });
+  assert.equal(await off.ctx.reconcileSleepCard(2), false);
+  assert.equal('sleep.enter' in off.device.events, false);
+  assert.deepEqual(off.deletes, ['/sleep.bmp']);
+  const foreign = await slotWorld({ slot: new Uint8Array([0x42, 0x4d, 7]), preference: false });
+  assert.equal(await foreign.ctx.reconcileSleepCard(2), false);
+  assert.deepEqual(foreign.deletes, []);
+  assert.deepEqual(foreign.writes, []);
+});
+
+
+test('temporary failure reading firmware sleep mode does not discard saved preference', async () => {
+  const world = await slotWorld({ slot: bmpCard(480, 800), preference: true });
+  assert.equal(await world.ctx.reconcileSleepCard(NaN), false);
+  assert.deepEqual(world.deletes, []);
+  assert.deepEqual(world.writes, []);
+  assert.deepEqual(Object.keys(world.device.events), ['sleep.enter']); // unrelated request event untouched
 });

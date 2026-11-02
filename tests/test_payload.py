@@ -49,6 +49,16 @@ class PayloadContractTests(unittest.TestCase):
             path.write_text(json.dumps(doc))
             self.assertTrue(any("device-scoped bearer" in e for e in validate(replica)))
 
+    def test_nested_folder_mapping_is_required(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            replica = Path(tmp) / "plugin"
+            shutil.copytree(PAYLOAD, replica)
+            path = replica / "device.json"
+            doc = json.loads(path.read_text())
+            doc["browse"]["fields"].pop("folder_url")
+            path.write_text(json.dumps(doc))
+            self.assertTrue(any("nested folders" in e for e in validate(replica)))
+
     def test_missing_request_version_telemetry_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             replica = Path(tmp) / "plugin"

@@ -20,7 +20,8 @@
       "id": "id",
       "url": "download_url",
       "description": "description",
-      "detail_author": "author"
+      "detail_author": "author",
+      "folder_url": "folder_url"
     },
     "search": {
       "url": "https://my.ybx.app/api/v1/crosspoint/catalog/search/connected?q={query}&page={page}&limit={limit}&v=1.7.0"

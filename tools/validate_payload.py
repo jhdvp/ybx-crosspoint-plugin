@@ -81,6 +81,8 @@ def validate(directory: Path = PAYLOAD, canonical: Path | None = None) -> list[s
             errors.append("authenticated dynamic profile must use lists_url only")
         if browse.get("lists_headers", {}).get("Authorization") != "Bearer {token}":
             errors.append("dynamic source index must send the device-scoped bearer")
+        if browse.get("fields", {}).get("folder_url") != "folder_url":
+            errors.append("dynamic nested folders require the folder_url field mapping")
         if browse.get("headers", {}).get("Authorization") != "Bearer {token}":
             errors.append("dynamic catalog must send the device-scoped bearer")
     else:

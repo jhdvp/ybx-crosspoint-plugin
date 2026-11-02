@@ -1,8 +1,8 @@
 {
   "name": "ybx",
   "title": "YBX",
-  "version": "1.6.13",
-  "description": "Библиотеки Яндекс Книг и WB Книг в YBX. Скачивание EPUB и статистика чтения.",
+  "version": "1.7.0",
+  "description": "Яндекс Книги, WB Книги и ЛитРес: подключённые библиотеки, EPUB и статистика YBX.",
   "mount": "settings",
   "author": "YBX",
   "icon": "icon.png",
@@ -10,7 +10,10 @@
     "firmware_family": [
       "crosspoint"
     ],
-    "plugin_api_min": 1
+    "plugin_api_min": 1,
+    "requires": [
+      "catalog.lists.auth"
+    ]
   },
   "files": [
     "manifest.json",

@@ -68,13 +68,26 @@ def validate(directory: Path = PAYLOAD, canonical: Path | None = None) -> list[s
         errors.append("firmware family crosspoint missing")
     if not isinstance(compatible.get("plugin_api_min"), int):
         errors.append("invalid minimum plugin API")
-    # This public payload must remain installable on upstream CrossPoint.
-    # Fork-only connected-source catalogs live in the YBX Reader firmware.
+    # Stock and fork-only profiles must be unambiguously identified.
+    # Dynamic lists require a firmware capability and authenticated requests.
     browse = device.get("browse", {})
-    if browse.get("lists_url") or "catalog.lists.auth" in compatible.get("requires", []):
-        errors.append("fork-only authenticated dynamic lists must not ship in public profile")
-    if not browse.get("lists"):
-        errors.append("stock CrossPoint public catalog must have static lists")
+    required = compatible.get("requires", [])
+    fork = "catalog.lists.auth" in required
+    plugin_required = plugin.get("compatibility", {}).get("requires", [])
+    if fork:
+        if plugin_required != required:
+            errors.append("fork capabilities must match in plugin.json and manifest.json")
+        if not browse.get("lists_url") or browse.get("lists"):
+            errors.append("authenticated dynamic profile must use lists_url only")
+        if browse.get("lists_headers", {}).get("Authorization") != "Bearer {token}":
+            errors.append("dynamic source index must send the device-scoped bearer")
+        if browse.get("headers", {}).get("Authorization") != "Bearer {token}":
+            errors.append("dynamic catalog must send the device-scoped bearer")
+    else:
+        if browse.get("lists_url"):
+            errors.append("stock profile cannot use fork-only dynamic lists")
+        if not browse.get("lists"):
+            errors.append("stock CrossPoint profile must have static lists")
     versioned = [browse.get("url", ""), browse.get("search", {}).get("url", ""),
                  *[entry.get("url", "") for entry in browse.get("lists", [])],
                  device.get("download", {}).get("url", "")]

@@ -29,15 +29,25 @@ class PayloadContractTests(unittest.TestCase):
             (replica / "manifest.json").write_text(json.dumps(manifest))
             self.assertTrue(any("unsafe/private file name" in err for err in validate(replica)))
 
-    def test_stock_profile_cannot_require_fork_capabilities(self):
+    def test_stock_profile_cannot_load_authenticated_dynamic_lists(self):
         with tempfile.TemporaryDirectory() as tmp:
             replica = Path(tmp) / "plugin"
             shutil.copytree(PAYLOAD, replica)
             manifest_path = replica / "manifest.json"
             manifest = json.loads(manifest_path.read_text())
-            manifest["compatibility"]["requires"] = ["catalog.lists.auth"]
+            manifest["compatibility"].pop("requires", None)
             manifest_path.write_text(json.dumps(manifest))
-            self.assertTrue(any("fork-only" in err for err in validate(replica)))
+            self.assertTrue(any("stock profile cannot" in err for err in validate(replica)))
+
+    def test_fork_requires_auth_headers_for_dynamic_list(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            replica = Path(tmp) / "plugin"
+            shutil.copytree(PAYLOAD, replica)
+            path = replica / "device.json"
+            doc = json.loads(path.read_text())
+            doc["browse"]["lists_headers"] = {}
+            path.write_text(json.dumps(doc))
+            self.assertTrue(any("device-scoped bearer" in e for e in validate(replica)))
 
     def test_missing_request_version_telemetry_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

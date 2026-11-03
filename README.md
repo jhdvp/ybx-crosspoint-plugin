@@ -14,6 +14,8 @@
 
 ---
 
+> **Две разные редакции:** этот репозиторий — только **YBX Stock** (официальный CrossPoint, стабильная 1.6.13). **YBX Native 1.9.1** развивается в нашей кастомной YBX Reader и не подходит для установки на стоковую прошивку. [Матрица совместимости и правила выпуска →](docs/EDITIONS.md)
+
 ## Библиотека, прогресс, статистика
 
 <table><tr><td width="50%">
@@ -80,6 +82,7 @@
 
 | Руководство | Содержание |
 | --- | --- |
+| [Stock и Native](docs/EDITIONS.md) | Разные исходники, версии, API, релизы и совместимость |
 | [Установка](docs/INSTALL.md) | ZIP, Plugin Hub, привязка, настройки в CrossPoint 2.0 |
 | [Состояние проекта](docs/STATUS.md) | Функции, релизы, подтверждённые тесты, roadmap |
 | [Устранение проблем](docs/TROUBLESHOOTING.md) | Синхронизация в одну сторону, экран сна, потерянный токен |
@@ -94,7 +97,7 @@
 ```bash
 python3 tools/validate_payload.py
 python3 -m unittest discover -s tests -v
-node --test tests/test_plugin_lifecycle.mjs
+node --test tests/test_browser_https.mjs tests/test_plugin_lifecycle.mjs
 ```
 
 **Важно:** обновление документации не меняет протоколы синхронизации или состав других стабильных версий.

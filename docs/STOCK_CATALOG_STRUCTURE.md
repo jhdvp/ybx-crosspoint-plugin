@@ -76,6 +76,9 @@ CrossPoint → Plugins → YBX
 ## QEMU evidence
 
 Official CrossPoint 2.0 RC X4 Pro booted with the unmodified Stock 1.6.14
-payload on a disposable SD; Plugins picker discovers YBX. This does
-**not** certify pairing, list contents or EPUB downloads. See
+payload on a disposable SD; Plugins picker discovers YBX. A second,
+isolated test connected to PICSimLabWifi and rendered all **eight**
+list names using a deliberately invalid fake token, with a safe
+not-signed-in failure state. This does **not** certify pairing,
+actual book contents or EPUB downloads. See
 [QEMU 11 smoke report](qa/stock1614-qemu-20261104.md) and its screenshot.

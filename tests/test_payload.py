@@ -39,6 +39,29 @@ class PayloadContractTests(unittest.TestCase):
             manifest_path.write_text(json.dumps(manifest))
             self.assertTrue(any("fork-only" in err for err in validate(replica)))
 
+    def test_native_extension_must_not_ship_in_stock(self):
+        for metadata_file in ("manifest.json", "plugin.json"):
+            with self.subTest(metadata_file=metadata_file), tempfile.TemporaryDirectory() as tmp:
+                replica = Path(tmp) / "plugin"
+                shutil.copytree(PAYLOAD, replica)
+                target = replica / metadata_file
+                data = json.loads(target.read_text())
+                data.setdefault("compatibility", {})["requires"] = ["catalog.folders.json"]
+                target.write_text(json.dumps(data))
+                self.assertTrue(any("fork-only" in e for e in validate(replica)))
+        for field in ("lists_url", "folder_url"):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
+                replica = Path(tmp) / "plugin"
+                shutil.copytree(PAYLOAD, replica)
+                target = replica / "device.json"
+                data = json.loads(target.read_text())
+                if field == "lists_url":
+                    data["browse"][field] = "https://my.ybx.app/api/v1/crosspoint/catalog/lists"
+                else:
+                    data["browse"]["fields"][field] = field
+                target.write_text(json.dumps(data))
+                self.assertTrue(any("fork-only" in e for e in validate(replica)))
+
     def test_missing_request_version_telemetry_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             replica = Path(tmp) / "plugin"

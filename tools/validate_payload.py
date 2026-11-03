@@ -68,13 +68,24 @@ def validate(directory: Path = PAYLOAD, canonical: Path | None = None) -> list[s
         errors.append("firmware family crosspoint missing")
     if not isinstance(compatible.get("plugin_api_min"), int):
         errors.append("invalid minimum plugin API")
-    # This public payload must remain installable on upstream CrossPoint.
-    # Fork-only connected-source catalogs live in the YBX Reader firmware.
+    # This public repository ships only the upstream CrossPoint edition.
+    # The YBX native edition lives in the custom firmware, with separate releases.
+    fork_only = {"catalog.lists.auth", "catalog.folders.json",
+                 "stats.native.v1", "ui.dashboard.v1"}
+    for filename, metadata in (("manifest.json", manifest), ("plugin.json", plugin)):
+        requirements = metadata.get("compatibility", {}).get("requires", [])
+        if not isinstance(requirements, list) or fork_only.intersection(requirements):
+            errors.append(f"fork-only capabilities forbidden in stock edition ({filename})")
     browse = device.get("browse", {})
-    if browse.get("lists_url") or "catalog.lists.auth" in compatible.get("requires", []):
-        errors.append("fork-only authenticated dynamic lists must not ship in public profile")
+    if browse.get("lists_url") or browse.get("lists_headers"):
+        errors.append("fork-only authenticated dynamic lists forbidden in stock edition")
+    if browse.get("fields", {}).get("folder_url"):
+        errors.append("fork-only JSON folder_url forbidden in stock edition")
     if not browse.get("lists"):
         errors.append("stock CrossPoint public catalog must have static lists")
+    elif any("parent" in entry or ("id" in entry and not entry.get("url"))
+             for entry in browse["lists"]):
+        errors.append("fork-only nested groups forbidden in stock edition")
     versioned = [browse.get("url", ""), browse.get("search", {}).get("url", ""),
                  *[entry.get("url", "") for entry in browse.get("lists", [])],
                  device.get("download", {}).get("url", "")]
@@ -85,6 +96,16 @@ def validate(directory: Path = PAYLOAD, canonical: Path | None = None) -> list[s
             versioned.append(event["download"].get("url", ""))
     if any("v=" + version not in url for url in versioned):
         errors.append("each catalog, download, and event URL must report the plugin version")
+    if directory == PAYLOAD:
+        index = load(ROOT, "catalog.json", errors)
+        entries = index.get("plugins", [])
+        public_base = "https://raw.githubusercontent.com/jhdvp/ybx-crosspoint-plugin/main/ybx.crosspoint-plugin/"
+        if (not isinstance(entries, list) or len(entries) != 1 or
+                entries[0].get("name") != "ybx" or
+                entries[0].get("version") != version or
+                entries[0].get("base") != public_base or
+                entries[0].get("files") != files):
+            errors.append("stock Plugin Hub index must match public main payload")
     if canonical is not None:
         other = load(canonical, "manifest.json", errors)
         if other.get("version") != version or other.get("files") != files:

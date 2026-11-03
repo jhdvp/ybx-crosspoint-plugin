@@ -56,3 +56,11 @@ CrossPoint → Plugins → YBX
    данных на физическом CrossPoint 1.6.x / 2.0 RC. Проверить X3/X4/X4Pro.
 6. Только после этих gate-ов мержить public PR и выпускать release 1.6.14;
    не обновлять Plugin Hub main до завершения QA.
+
+
+## QEMU evidence
+
+Official CrossPoint 2.0 RC X4 Pro booted with the unmodified Stock 1.6.14
+payload on a disposable SD; Plugins picker discovers YBX. This does
+**not** certify pairing, list contents or EPUB downloads. See
+[QEMU 11 smoke report](qa/stock1614-qemu-20261104.md) and its screenshot.

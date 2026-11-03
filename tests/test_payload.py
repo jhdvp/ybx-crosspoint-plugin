@@ -62,6 +62,17 @@ class PayloadContractTests(unittest.TestCase):
                 target.write_text(json.dumps(data))
                 self.assertTrue(any("fork-only" in e for e in validate(replica)))
 
+    def test_stock_metadata_must_not_advertise_native_capabilities(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            replica = Path(tmp) / "plugin"
+            shutil.copytree(PAYLOAD, replica)
+            path = replica / "plugin.json"
+            doc = json.loads(path.read_text())
+            doc["capabilities"].append("catalog.folders.json")
+            path.write_text(json.dumps(doc))
+            self.assertTrue(any("plugin.json.capabilities" in err
+                                for err in validate(replica)))
+
     def test_missing_request_version_telemetry_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             replica = Path(tmp) / "plugin"

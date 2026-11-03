@@ -76,6 +76,9 @@ def validate(directory: Path = PAYLOAD, canonical: Path | None = None) -> list[s
         requirements = metadata.get("compatibility", {}).get("requires", [])
         if not isinstance(requirements, list) or fork_only.intersection(requirements):
             errors.append(f"fork-only capabilities forbidden in stock edition ({filename})")
+    declared = plugin.get("capabilities", [])
+    if not isinstance(declared, list) or fork_only.intersection(declared):
+        errors.append("fork-only capabilities forbidden in stock plugin.json.capabilities")
     browse = device.get("browse", {})
     if browse.get("lists_url") or browse.get("lists_headers"):
         errors.append("fork-only authenticated dynamic lists forbidden in stock edition")

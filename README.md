@@ -97,7 +97,7 @@
 ```bash
 python3 tools/validate_payload.py
 python3 -m unittest discover -s tests -v
-node --test tests/test_plugin_lifecycle.mjs
+node --test tests/test_browser_https.mjs tests/test_plugin_lifecycle.mjs
 ```
 
 **Важно:** обновление документации не меняет протоколы синхронизации или состав других стабильных версий.

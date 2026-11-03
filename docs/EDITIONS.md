@@ -9,7 +9,7 @@
 | Версия | **1.6.13** — стабильная | **1.9.1** — проверяемый кандидат PR #14 |
 | Прошивка | Официальный CrossPoint | Только кастомная YBX Reader |
 | Каталоги | Статические `browse.lists`, совместимые со штатным API | Подключённые провайдеры, «Все», «Все книги», вложенные серии и полки |
-| Дополнительные capabilities | Без `catalog.lists.auth` и `catalog.folders.json` | Требует **оба**: `catalog.lists.auth` и `catalog.folders.json` |
+| Дополнительные capabilities | Без `catalog.lists.auth`, `catalog.folders.json`, `stats.native.v1` и `ui.dashboard.v1` | Требует **оба**: `catalog.lists.auth` и `catalog.folders.json` |
 | Статистика и интерфейс | Веб-панель со смартфона | Собственные экраны, статистика, достижения, чтение/полка на ридере |
 | Выпуск | Релизы этого репозитория и Plugin Hub `catalog.json` из `main` | Состав YBX Reader, собственная сборка и тестирование |
 

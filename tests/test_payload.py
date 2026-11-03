@@ -107,6 +107,33 @@ class PayloadContractTests(unittest.TestCase):
             self.assertTrue(any("plugin.json.capabilities" in err
                                 for err in validate(replica)))
 
+    def test_stock_epub_bearer_never_follows_response_controlled_url(self):
+        """Keep the fixed HTTPS origin: row.download_url is not a trusted host."""
+        with tempfile.TemporaryDirectory() as tmp:
+            replica = Path(tmp) / "plugin"
+            shutil.copytree(PAYLOAD, replica)
+            target = replica / "device.json"
+            device = json.loads(target.read_text())
+            original = device["download"]["url"]
+            for forged in (
+                "{url}",  # an arbitrary row URL could exfiltrate Bearer
+                "https://attacker.example/books/{id}/download?v=1.6.14",
+                "http://my.ybx.app/api/v1/crosspoint/books/{id}/download?v=1.6.14",
+            ):
+                device["download"]["url"] = forged
+                target.write_text(json.dumps(device))
+                self.assertTrue(any(
+                    "fixed same-origin YBX book-id URL" in err
+                    for err in validate(replica)
+                ), forged)
+            device["download"]["url"] = original
+            device["download"]["headers"]["Authorization"] = "Bearer PUBLIC"
+            target.write_text(json.dumps(device))
+            self.assertTrue(any(
+                "scope the Bearer token to YBX" in err
+                for err in validate(replica)
+            ))
+
     def test_missing_request_version_telemetry_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             replica = Path(tmp) / "plugin"

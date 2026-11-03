@@ -89,6 +89,15 @@ def validate(directory: Path = PAYLOAD, canonical: Path | None = None) -> list[s
     elif any("parent" in entry or ("id" in entry and not entry.get("url"))
              for entry in browse["lists"]):
         errors.append("fork-only nested groups forbidden in stock edition")
+    # Stock firmware ignores item.download_url when the manifest declares a
+    # direct download template. Bearer {token} must never flow to an
+    # attacker-controlled catalog URL or a redirect chosen by provider data.
+    download = device.get("download", {})
+    expected_url = f"https://my.ybx.app/api/v1/crosspoint/books/{{id}}/download?v={version}"
+    if download.get("url") != expected_url:
+        errors.append("stock download must use fixed same-origin YBX book-id URL")
+    if download.get("headers", {}).get("Authorization") != "Bearer {token}":
+        errors.append("stock download must scope the Bearer token to YBX")
     versioned = [browse.get("url", ""), browse.get("search", {}).get("url", ""),
                  *[entry.get("url", "") for entry in browse.get("lists", [])],
                  device.get("download", {}).get("url", "")]

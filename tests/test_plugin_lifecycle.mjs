@@ -213,6 +213,8 @@ function syncScenario({
       return { status: authStatus };
     } },
     syncButton: { disabled: false },
+    document: { createElement: () => ({ hidden: false, disabled: false, onclick: null }) },
+    SYNC_OFF: { koServerUrl: '', koUsername: '', koPassword: '' },
     syncValue: { textContent: '' },
     restoreButton: { hidden: true },
     KOSYNC_PREVIOUS: '/.crosspoint/plugins/ybx/kosync-previous.json',
@@ -235,7 +237,7 @@ function syncScenario({
     message: (...x) => messages.push(x),
   });
   vm.runInContext(syncUrlHelpers, context);
-  vm.runInContext(sync, context);
+  vm.runInContext(sync + '\n;globalThis.disableSyncButton = disableSyncButton;', context);
   return { context, writes, messages, confirmations, stored, authCalls, saved };
 }
 
@@ -267,6 +269,36 @@ test('the ordinary KOSync button cannot downgrade quote-enabled HTTPS credential
   assert.equal(host.authCalls.length, 0);
   assert.match(host.messages.at(-1)[0], /цитат включена/);
   assert.equal(host.messages.at(-1)[1], 'err');
+});
+
+test('KOSync disable keeps metadata and disables quotes only after confirmation', async () => {
+  const host = syncScenario({ server: 'https://my.ybx.app/api/v1/crosspoint/kosync', quoteSync: true });
+  host.stored.libraryUseMetadata = 1;
+  host.stored.koSendMetadata = 1;
+  await host.context.disableSyncButton.onclick();
+  assert.deepEqual(JSON.parse(JSON.stringify(host.writes)), [{
+    koServerUrl: '', koUsername: '', koPassword: '', koSyncClippings: 0,
+  }]);
+  assert.equal(host.stored.libraryUseMetadata, 1);
+  assert.equal(host.stored.koSendMetadata, 1);
+  assert.equal(host.stored.koSyncClippings, 0);
+  assert.match(host.messages.at(-1)[0], /отключён/);
+});
+
+test('KOSync disable cancellation leaves credentials and clipping state alone', async () => {
+  const host = syncScenario({ server: 'https://my.ybx.app/api/v1/crosspoint/kosync',
+    quoteSync: true, confirm: false });
+  await host.context.disableSyncButton.onclick();
+  assert.equal(host.writes.length, 0);
+  assert.equal(host.stored.koSyncClippings, 1);
+  assert.match(host.messages.at(-1)[0], /отменено/);
+});
+
+test('KOSync disable refuses to clear another server', async () => {
+  const host = syncScenario({ server: 'https://other.example/kosync' });
+  await host.context.disableSyncButton.onclick();
+  assert.equal(host.writes.length, 0);
+  assert.match(host.messages.at(-1)[0], /другого сервера/);
 });
 
 test('a refused key mint writes nothing', async () => {
@@ -354,7 +386,7 @@ test('account migration requires consent and writes coherent plugin credentials'
   const host = syncScenario({ server: 'http://opds.ybx.app/kosync' });
   await host.context.syncButton.onclick();
   assert.deepEqual(host.writes.map((item) => Object.keys(item))[0],
-    ['koServerUrl', 'koUsername', 'koPassword', 'koMatchMethod', 'koSyncBehavior', 'koSendMetadata']);
+    ['koServerUrl', 'koUsername', 'koPassword', 'koMatchMethod', 'koSyncBehavior']);
   assert.equal(host.stored.koServerUrl, 'http://sync.ybx.app/api/v1/crosspoint/kosync');
   assert.equal(host.stored.koUsername, 'ybx');
   assert.equal(host.stored.koPassword, 'kosync_test');

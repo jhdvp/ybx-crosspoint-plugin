@@ -16,7 +16,7 @@ function scenario({ enabled = false, consent = true, relayStatus = 200,
   failReadback = false, relayAvailable = true, oldServer = '',
   token = { access_token: 'cp_valid' }, existingBackup = null } = {}) {
   const values = { koServerUrl: oldServer, koUsername: '', koPassword: '',
-    koServerType: 2, koMatchMethod: 0, koSendMetadata: 0,
+    koServerType: 2, koMatchMethod: 0, libraryUseMetadata: 0, koSendMetadata: 0,
     koSyncBehavior: 0, koSyncClippings: Number(enabled) };
   const writes = [], messages = [], calls = [], confirms = [], backups = [];
   let reads = 0;
@@ -71,6 +71,7 @@ test('one click sets all firmware settings including send metadata and Sync Clip
   assert.equal(t.values.koServerType, 0);
   assert.equal(t.values.koMatchMethod, 1); // Stock supports binary, not metadata-based matching
   assert.equal(t.values.koSendMetadata, 1);
+  assert.equal(t.values.libraryUseMetadata, 1);
   assert.equal(t.values.koSyncBehavior, 1);
   assert.equal(t.values.koSyncClippings, 1);
   assert.equal(t.backups.length, 1);
@@ -86,6 +87,7 @@ test('disabling quotes changes only one flag, leaves progress and metadata intac
   assert.deepEqual(t.writes, [{ koSyncClippings: 0 }]);
   assert.equal(t.values.koServerUrl, BASE);
   assert.equal(t.values.koSendMetadata, 0);
+  assert.equal(t.values.libraryUseMetadata, 0);
   assert.equal(t.calls.length, 0);
   assert.match(t.button.textContent, /^Включить/);
 });
@@ -104,6 +106,7 @@ test('server failure does not enable quote sync or alter metadata', async () => 
   await t.click();
   assert.equal(t.writes.length, 0);
   assert.equal(t.values.koSendMetadata, 0);
+  assert.equal(t.values.libraryUseMetadata, 0);
   assert.equal(t.messages.at(-1)[1], 'err');
 });
 

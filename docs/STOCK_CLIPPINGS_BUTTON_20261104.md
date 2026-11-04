@@ -12,7 +12,8 @@
 - writes the **verified HTTPS** KOSync URL, username and password to
   `/api/settings` on official Stock 2.0, along with:
   `koServerType=0` (CrossPoint), `koMatchMethod=1` (Binary),
-  `koSendMetadata=1` (send title/author metadata),
+  `libraryUseMetadata=1` (Library → Use Book Metadata),
+  `koSendMetadata=1` (Sync → Send Document Metadata),
   `koSyncBehavior=1` (Smart Sync), `koSyncClippings=1`;
 - checks all non-secret values via readback; checks KOSync credentials on the
   HTTPS server's `/users/auth`. The original password is masked by firmware.
@@ -20,8 +21,12 @@
   exchange. The reader has to perform Sync Progress to prove delivery.
 
 Stock has *no metadata matching option* in `DocumentMatchMethod`; it supports
-only `FILENAME=0` or `BINARY=1`. `koSendMetadata=1` is a separate setting and is
-not an instruction to use filename instead of the content identity hash.
+only `FILENAME=0` or `BINARY=1`. As the user's Stock screen shows,
+there are two independent metadata toggles:
+`libraryUseMetadata=1` indexes and displays local title/author metadata in
+Library; `koSendMetadata=1` includes metadata in sync requests. They are not a
+third document matching mode and do not by themselves confirm metadata is
+received back from the server. Binary document matching stays selected.
 
 The separate **Disable** action writes only `koSyncClippings=0` (no account
 removal, KOSync progress credential or book deletion). Explicitly restoring a

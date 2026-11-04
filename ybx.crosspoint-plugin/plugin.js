@@ -1035,9 +1035,10 @@ CrossPoint.registerPlugin(async (container, api) => {
     const clipHint = document.createElement('p');
     clipHint.className = 'ybx-hint';
     clipHint.textContent = 'Отдельно от синхронизации позиции: включение настроит HTTPS, '
-      + 'разрешения цитат, отправку метаданных и Smart Sync. На Stock доступны '
-      + 'методы сопоставления «По имени файла» и «Бинарный» — отдельного '
-      + 'сопоставления по метаданным в прошивке нет. Реальная доставка цитат '
+      + 'передачу метаданных KOSync, использование метаданных книг в Library '
+      + 'и Smart Sync. Сопоставление файлов остаётся бинарным; методы '
+      + 'сопоставления файлов — «По имени файла» и «Бинарный». Эти параметры '
+      + 'отличаются от двух переключателей метаданных. Реальная доставка цитат '
       + 'проверяется после синхронизации на устройстве.';
     rows.appendChild(clipHint);
     const restoreButton = document.createElement('button');
@@ -1056,7 +1057,7 @@ CrossPoint.registerPlugin(async (container, api) => {
       try {
         const values = { koServerUrl: previous.koServerUrl, koUsername: previous.koUsername,
           koPassword: '', koSyncClippings: 0 };
-        for (const key of ['koMatchMethod', 'koSyncBehavior', 'koSendMetadata']) {
+        for (const key of ['libraryUseMetadata', 'koMatchMethod', 'koSyncBehavior', 'koSendMetadata']) {
           if (previous[key] !== undefined && previous[key] !== null) values[key] = previous[key];
         }
         await writeSettings(values);
@@ -1102,7 +1103,8 @@ CrossPoint.registerPlugin(async (container, api) => {
         const oldUser = settingValue(latest, 'koUsername') || '';
         if (!window.confirm('Включить синхронизацию цитат YBX?\n\n'
             + 'Будут установлены HTTPS-сервер YBX, ключ с правами на цитаты, '
-            + 'отправка метаданных, бинарное сопоставление книг и Smart Sync. '
+            + 'передача метаданных документа, использование метаданных книг '
+            + 'в библиотеке, бинарное сопоставление EPUB и Smart Sync. '
             + 'Текущие настройки KOSync этого ридера могут измениться.\n\n'
             + 'Прежний сервер: ' + (oldServer || 'не настроен')
             + '\n\nДругие источники книг и их файлы не затрагиваются. Продолжить?')) {
@@ -1128,6 +1130,7 @@ CrossPoint.registerPlugin(async (container, api) => {
         if (oldServer !== CLIPPINGS_KOSYNC_URL && !await readJson(KOSYNC_PREVIOUS)) {
           await writeJson(KOSYNC_PREVIOUS, {
             koServerUrl: oldServer, koUsername: oldUser,
+            libraryUseMetadata: settingValue(latest, 'libraryUseMetadata'),
             koMatchMethod: settingValue(latest, 'koMatchMethod'),
             koSyncBehavior: settingValue(latest, 'koSyncBehavior'),
             koSendMetadata: settingValue(latest, 'koSendMetadata'),
@@ -1141,16 +1144,17 @@ CrossPoint.registerPlugin(async (container, api) => {
           koServerUrl: CLIPPINGS_KOSYNC_URL,
           koUsername: 'ybx', koPassword: key,
           koServerType: 0,       // CrossPoint protocol
-          koMatchMethod: 1,      // Binary book identity (not metadata matching)
-          koSendMetadata: 1,     // Send title/author metadata
+          koMatchMethod: 1,      // Binary document matching (distinct from metadata)
+          libraryUseMetadata: 1, // Library -> Use Book Metadata
+          koSendMetadata: 1,     // Sync -> Send Document Metadata
           koSyncBehavior: 1,     // Smart Sync
           koSyncClippings: 1,    // Official Stock firmware setting
         });
         const saved = await readSettings({ required: true });
         for (const [name, expected] of Object.entries({
           koServerUrl: CLIPPINGS_KOSYNC_URL, koUsername: 'ybx',
-          koServerType: 0, koMatchMethod: 1, koSendMetadata: 1,
-          koSyncBehavior: 1, koSyncClippings: 1,
+          koServerType: 0, koMatchMethod: 1, libraryUseMetadata: 1,
+          koSendMetadata: 1, koSyncBehavior: 1, koSyncClippings: 1,
         })) {
           const got = settingValue(saved, name);
           if (name === 'koServerUrl' || name === 'koUsername'

@@ -1200,13 +1200,12 @@ CrossPoint.registerPlugin(async (container, api) => {
         await writeSettings({
           koServerUrl: CLIPPINGS_KOSYNC_URL,
           koUsername: 'ybx', koPassword: key,
-          koServerType: 0,       // CrossPoint protocol
           koSyncClippings: 1,    // Official Stock firmware setting
         });
         const saved = await readSettings({ required: true });
         for (const [name, expected] of Object.entries({
           koServerUrl: CLIPPINGS_KOSYNC_URL, koUsername: 'ybx',
-          koServerType: 0, koSyncClippings: 1,
+          koSyncClippings: 1,
         })) {
           const got = settingValue(saved, name);
           if (name === 'koServerUrl' || name === 'koUsername'

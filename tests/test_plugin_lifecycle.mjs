@@ -15,7 +15,7 @@ const exists = extract('  async function fileExists(dir, name) {', '\n  // Пр�
 const readToken = extract('  const readPluginToken = async () => {', '\n  const writeJson =');
 const readSettingsSource = extract('  const readSettings = async ({ required = false } = {}) => {',
   '\n  const writeSettings =');
-const sync = extract('    syncButton.onclick = async () => {', '\n    const SLEEP_MODES =');
+const sync = extract('    syncButton.onclick = async () => {', '\n    const v2ProbeButton =');
 // The predicates the sync button leans on, taken from the plugin itself so the
 // scenarios cannot drift from what ships.
 const syncUrlHelpers = extract('  const syncMode = (settings) => {', '\n  const version = async () => {')

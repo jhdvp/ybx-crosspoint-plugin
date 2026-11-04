@@ -255,6 +255,43 @@ CrossPoint.registerPlugin(async (container, api) => {
     return 'other';
   };
   const pointsToYbx = (settings) => syncMode(settings) === 'plugin';
+  // Passive KoSync V2 capability check. The firmware owns outbound KOReader
+  // requests, not the JS plugin. The presence of header-setting fields does
+  // not prove the reader sends V2, and the value is intentionally masked in
+  // GET /api/settings. Never automatically configure a V2 header: the server
+  // can irreversibly raise a device's minimum protocol after authenticated V2.
+  const kosyncV2Readiness = (settings) => {
+    const caution = 'Это не проверка исходящего HTTP-запроса. '
+      + 'После первого авторизованного V2 сервер может запретить Legacy PUT при откате прошивки. '
+      + 'Плагин ничего не меняет.';
+    if (!Array.isArray(settings) || settings.length === 0) {
+      return { label: 'не проверено', detail: 'Настройки прошивки недоступны. ' + caution };
+    }
+    const byKey = new Map(settings.filter((entry) => entry && typeof entry.key === 'string')
+      .map((entry) => [entry.key, entry]));
+    const slots = [1, 2];
+    const supported = slots.every((slot) =>
+      byKey.has('koHeader' + slot + 'Name') && byKey.has('koHeader' + slot + 'Value'));
+    if (!supported) {
+      return { label: 'нет API заголовков', detail: 'В этой прошивке веб-API не показывает '
+        + 'поля пользовательских заголовков KOSync. Legacy остаётся штатным режимом. ' + caution };
+    }
+    for (const slot of slots) {
+      const name = byKey.get('koHeader' + slot + 'Name')?.value;
+      if (typeof name !== 'string' || name.trim().toLowerCase() !== 'x-ybx-kosync-protocol') continue;
+      const value = byKey.get('koHeader' + slot + 'Value');
+      // Obfuscated value fields normally expose only hasPassword, NOT value.
+      // Never display, persist, or infer the hidden value from the header name.
+      if (value?.hasPassword === false && !value?.value) {
+        return { label: 'заголовок без значения', detail: 'Имя заголовка V2 найдено, '
+          + 'но его значение не задано. V2 не подтверждён. ' + caution };
+      }
+      return { label: 'имя V2 найдено', detail: 'Поле X-YBX-Kosync-Protocol найдено. '
+        + 'Значение скрыто прошивкой, а факт отправки V2 не подтверждён. ' + caution };
+    }
+    return { label: 'поля доступны, V2 не найден', detail: 'Прошивка показывает '
+      + 'настройки пользовательских HTTP-заголовков, но заголовок YBX V2 не задан. ' + caution };
+  };
   const fetchKosyncKey = async () => {
     // The narrow kosync_ key: this account's progress GET/PUT and nothing else.
     // It is minted over TLS with the cp_ token before it is ever handed to the
@@ -1017,6 +1054,16 @@ CrossPoint.registerPlugin(async (container, api) => {
     sleepHelp.append(sleepHelpTitle, sleepHelpText);
     rows.appendChild(sleepHelp);
     rows.appendChild(syncRow);
+    const v2Row = document.createElement('div');
+    v2Row.className = 'ybx-row';
+    const v2Label = document.createElement('span');
+    v2Label.className = 'ybx-label';
+    v2Label.textContent = 'KoSync V2 · совместимость';
+    const v2Value = document.createElement('span');
+    v2Value.className = 'ybx-value';
+    v2Value.textContent = kosyncV2Readiness(current).label;
+    v2Row.append(v2Label, v2Value);
+    rows.appendChild(v2Row);
     const restoreButton = document.createElement('button');
     restoreButton.type = 'button';
     restoreButton.textContent = 'Вернуть прежний KOSync';
@@ -1140,6 +1187,24 @@ CrossPoint.registerPlugin(async (container, api) => {
         // After confirmation or cancellation, this action remains available
         // for future QR re-logins and key rotations.
         syncButton.disabled = !token;
+      }
+    };
+    const v2ProbeButton = document.createElement('button');
+    v2ProbeButton.type = 'button';
+    v2ProbeButton.textContent = 'Проверить KoSync V2 (без изменений)';
+    v2ProbeButton.onclick = async () => {
+      v2ProbeButton.disabled = true;
+      try {
+        // Only GET; no setting writes, no relay, no sync or device-floor change.
+        const latest = await readSettings({ required: true });
+        const result = kosyncV2Readiness(latest);
+        v2Value.textContent = result.label;
+        message(result.detail);
+      } catch (_error) {
+        v2Value.textContent = 'не проверено';
+        message('Не удалось прочитать настройки ридера. KoSync не изменён.', 'err');
+      } finally {
+        v2ProbeButton.disabled = false;
       }
     };
     // «Свой» is the firmware mode that shows /sleep.bmp, so switching the card on
@@ -1590,7 +1655,8 @@ CrossPoint.registerPlugin(async (container, api) => {
         signOutButton.disabled = false;
       }
     };
-    actions.append(sleepButton, sleepCardButton, legacyButton, statsButton, syncButton, restoreButton, checkButton, updateButton, signOutButton);
+    actions.append(sleepButton, sleepCardButton, legacyButton, statsButton, syncButton,
+      v2ProbeButton, restoreButton, checkButton, updateButton, signOutButton);
     settings.appendChild(rows);
     settings.appendChild(statsHint);
     settings.appendChild(updateBanner);

@@ -135,6 +135,20 @@ test('server failure does not enable quote sync or alter metadata', async () => 
   assert.equal(t.messages.at(-1)[1], 'err');
 });
 
+test('production 404 before server rollout must leave old KOSync and metadata untouched', async () => {
+  const url = 'https://third-party.example/custom-kosync';
+  const t = scenario({ relayStatus: 404, oldServer: url });
+  await t.click();
+  assert.equal(t.writes.length, 0);
+  assert.equal(t.backups.length, 0);
+  assert.equal(t.values.koServerUrl, url);
+  assert.equal(t.values.koSyncClippings, 0);
+  assert.equal(t.values.koSendMetadata, 0);
+  assert.equal(t.values.libraryUseMetadata, 0);
+  assert.equal(t.messages.at(-1)[1], 'err');
+  assert.equal(t.button.disabled, false, 'retry button remains available after server deployment');
+});
+
 test('invalid token or unsafe quote endpoint fails closed', async () => {
   for (const response of [
     { kosync_key: 'cp_wrong', sync_url: BASE, clippings_enabled: true },

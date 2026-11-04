@@ -215,7 +215,7 @@ function syncScenario({
     mode: stored.koServerUrl.includes('/api/v1/crosspoint/kosync') ? 'plugin' : 'other',
     syncButton: { disabled: false },
     document: { createElement: () => ({ hidden: false, disabled: false, onclick: null }) },
-    SYNC_OFF: { koServerUrl: '', koUsername: '', koPassword: '' },
+    SYNC_OFF: { koServerUrl: '', koUsername: '', koPassword: '', koSyncClippings: 0 },
     syncValue: { textContent: '' },
     clipValue: { textContent: '' },
     clippingButton: { textContent: '' },
@@ -444,7 +444,7 @@ function logoutScenario({
     API: 'https://my.ybx.app',
     TOKEN_PATH: '/.crosspoint/plugins/ybx/token.json',
     LEGACY_TOKEN_PATH: '/.crosspoint/plugin-data/ybx/token.json',
-    SYNC_OFF: { koServerUrl: '', koUsername: '', koPassword: '' },
+    SYNC_OFF: { koServerUrl: '', koUsername: '', koPassword: '', koSyncClippings: 0 },
     signOutButton: { disabled: false }, Error,
     api: { relay: async (...args) => {
       calls.push(args);

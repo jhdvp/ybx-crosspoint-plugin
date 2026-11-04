@@ -90,6 +90,7 @@ test('disabling quotes changes only one flag, leaves progress and metadata intac
   await t.click();
   assert.deepEqual(t.writes, [{ koSyncClippings: 0 }]);
   assert.equal(t.values.koServerUrl, BASE);
+  assert.equal(t.context.syncValue.textContent, 'YBX · KOSync (без цитат)');
   assert.equal(t.values.koSendMetadata, 0);
   assert.equal(t.values.libraryUseMetadata, 0);
   assert.equal(t.calls.length, 0);

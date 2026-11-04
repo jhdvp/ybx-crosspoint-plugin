@@ -31,7 +31,7 @@ CrossPoint.registerPlugin(async (container, api) => {
   const STATS_URL = API + '/api/v1/crosspoint/reading/vcodex';
   const STATS_FILE = '/.crosspoint/reading_stats.json';
   const STATS_IMPORT_FILE = '/exports/stats_exported';
-  const SYNC_OFF = { koServerUrl: '', koUsername: '', koPassword: '' };
+  const SYNC_OFF = { koServerUrl: '', koUsername: '', koPassword: '', koSyncClippings: 0 };
 
   if (!document.getElementById('ybx-plugin-style')) {
     const style = document.createElement('style');
@@ -1093,7 +1093,7 @@ CrossPoint.registerPlugin(async (container, api) => {
         } catch (error) {
           message('Не удалось сохранить метаданные: ' + error.message, 'err');
         } finally {
-          control.disabled = !token;
+          control.disabled = !token || settingValue(current, key) === undefined;
         }
       };
       metadataButtons[key] = control;
@@ -1152,6 +1152,7 @@ CrossPoint.registerPlugin(async (container, api) => {
           if (clipsEnabled(after)) throw new Error('ридер не выключил синхронизацию цитат');
           clipValue.textContent = 'Выключена в прошивке';
           clippingButton.textContent = 'Включить синхронизацию цитат';
+          syncValue.textContent = 'YBX · KOSync (без цитат)';
           message('Синхронизация цитат выключена в прошивке. Настройки KOSync сохранены.', 'ok');
           return;
         }

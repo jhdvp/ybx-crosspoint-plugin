@@ -20,7 +20,7 @@ const sync = extract('    syncButton.onclick = async () => {', '\n    const SLEE
 // scenarios cannot drift from what ships.
 const syncUrlHelpers = extract('  const syncMode = (settings) => {', '\n  const version = async () => {')
   + '\nglobalThis.syncMode = syncMode; globalThis.pointsToYbx = pointsToYbx;';
-const logout = extract('    signOutButton.onclick = async () => {', '\n    actions.append(');
+const logout = extract('    signOutButton.onclick = async () => {', '\n    const settingGroup =');
 
 const sleepConsts = extract('    const SLEEP_MODES =', '\n    const sleepButton =');
 const sleepToggle = extract('    sleepButton.onclick = async () => {', '\n    const sleepCardButton =');
@@ -212,10 +212,13 @@ function syncScenario({
       }
       return { status: authStatus };
     } },
+    mode: stored.koServerUrl.includes('/api/v1/crosspoint/kosync') ? 'plugin' : 'other',
     syncButton: { disabled: false },
     document: { createElement: () => ({ hidden: false, disabled: false, onclick: null }) },
     SYNC_OFF: { koServerUrl: '', koUsername: '', koPassword: '' },
     syncValue: { textContent: '' },
+    clipValue: { textContent: '' },
+    clippingButton: { textContent: '' },
     restoreButton: { hidden: true },
     KOSYNC_PREVIOUS: '/.crosspoint/plugins/ybx/kosync-previous.json',
     writeJson: async (path, value) => { saved.push([path, value]); },

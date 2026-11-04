@@ -184,6 +184,7 @@ test('settings failure must block mutation, not imply that settings are blank', 
 
 function syncScenario({
   confirm = true, synced = true, server = null, settingsFailure = false,
+  quoteSync = false,
   dropWrite = false, dropUser = false, refreshFailure = false, authStatus = 200,
   keyStatus = 200, keyBody = JSON.stringify({ kosync_key: 'kosync_test', username: 'ybx' }),
   username = null,
@@ -195,11 +196,13 @@ function syncScenario({
     koUsername: username ?? (server?.includes('/kosync') && !server.includes('/api/v1/')
       ? 'account_name' : 'ybx'),
     koPassword: 'masked',
+    koSyncClippings: Number(quoteSync),
   };
   let reads = 0;
   const saved = [];
   const context = vm.createContext({
     token, Error, URL, Date,
+    clipsEnabled: (settings) => Number(settings.find((row) => row.key === 'koSyncClippings')?.value || 0) === 1,
     btoa: (s) => Buffer.from(s).toString('base64'),
     API: 'https://my.ybx.app',
     api: { relay: async (...args) => {
@@ -255,6 +258,15 @@ test('rotation mints the narrow key over TLS and validates it on the sync host',
     'Basic ' + Buffer.from('ybx:kosync_test').toString('base64'));
   assert.equal(host.context.syncButton.disabled, false);
   assert.match(host.messages.at(-1)[0], /сервер принимает ключ/);
+});
+
+test('the ordinary KOSync button cannot downgrade quote-enabled HTTPS credentials to HTTP', async () => {
+  const host = syncScenario({ server: 'https://my.ybx.app/api/v1/crosspoint/kosync', quoteSync: true });
+  await host.context.syncButton.onclick();
+  assert.deepEqual(host.writes, []);
+  assert.equal(host.authCalls.length, 0);
+  assert.match(host.messages.at(-1)[0], /цитат включена/);
+  assert.equal(host.messages.at(-1)[1], 'err');
 });
 
 test('a refused key mint writes nothing', async () => {

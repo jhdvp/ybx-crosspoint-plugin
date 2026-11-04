@@ -17,7 +17,7 @@ jobs:
         with:
           node-version: '22'
       - run: node --check ybx.crosspoint-plugin/plugin.js
-      - run: node --test tests/test_plugin_lifecycle.mjs
+      - run: node --test tests/*.mjs
       # The source YBX Server repository is PRIVATE. Cross-repository
       # verification runs in the private server CI, never with a private
       # repository token in this PUBLIC repository's pull-request workflow.

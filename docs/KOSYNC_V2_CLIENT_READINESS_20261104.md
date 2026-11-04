@@ -23,8 +23,12 @@ be checked individually; do not infer capabilities from a plugin version.
 
 ## Passive inspection in plugin settings
 
-The new **«Проверить KoSync V2 (без изменений)»** action only does a fresh
-same-origin **GET `/api/settings`**. Its output deliberately distinguishes:
+The new **«Проверить KoSync V2 (без изменений)»** action lives in the
+independent **«KOSync · позиции чтения»** group introduced by the ongoing
+Stock 1.6.14 settings refactor (PR #17), alongside enable/disable and restore.
+The separate **metadata** and **quotes/clippings** groups are unchanged by
+this diagnostic. The action only does a fresh same-origin **GET
+`/api/settings`**. Its output deliberately distinguishes:
 
 | Actual settings response | Reported result | Safe interpretation |
 | --- | --- | --- |

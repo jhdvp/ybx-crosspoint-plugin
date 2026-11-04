@@ -11,6 +11,40 @@ class PayloadContractTests(unittest.TestCase):
     def test_manifest_and_device_contract(self):
         self.assertEqual(validate(PAYLOAD), [])
 
+    def test_stock_1614_static_merged_library_and_search(self):
+        payload = json.loads((PAYLOAD / "device.json").read_text())
+        manifest = json.loads((PAYLOAD / "manifest.json").read_text())
+        self.assertEqual(manifest["version"], "1.6.14")
+        browse = payload["browse"]
+        self.assertEqual(browse["format"], "json")
+        self.assertEqual(browse["page_size"], 10)
+        self.assertNotIn("lists_url", browse)
+        self.assertNotIn("lists_headers", browse)
+        self.assertNotIn("folder_url", browse["fields"])
+        self.assertEqual([v["title"] for v in browse["lists"]], [
+            "Все книги", "Читаю", "Хочу прочитать", "Прочитано",
+            "Загруженные", "Яндекс Книги", "WB Книги", "ЛитРес"])
+        base = "https://my.ybx.app/api/v1/crosspoint/"
+        self.assertEqual([v["url"].split("?")[0] for v in browse["lists"]], [
+            base+"catalog/all", base+"catalog/all", base+"catalog/all",
+            base+"catalog/all", base+"catalog/all", base+"catalog",
+            base+"wb/catalog", base+"litres/catalog",
+        ])
+        self.assertEqual(
+            [v["url"].split("kind=")[1].split("&")[0] for v in browse["lists"][:5]],
+            ["all", "reading", "to_read", "done", "uploaded"])
+        self.assertIn("/catalog/all?kind=all&q={query}&", browse["search"]["url"])
+        self.assertIn("&stock=1", browse["lists"][-1]["url"])
+        self.assertIn("&stock=1", browse["lists"][-2]["url"])
+        for entry in browse["lists"]:
+            self.assertNotIn("parent", entry)
+            self.assertNotIn("id", entry)
+            self.assertIn("v=1.6.14", entry["url"])
+        self.assertEqual(payload["token"]["file"], "token.json")
+        self.assertEqual(payload["download"]["dest_dir"], "/books/ybx")
+        self.assertIn("Bearer {token}", payload["download"]["headers"]["Authorization"])
+        self.assertLessEqual((PAYLOAD / "device.json").stat().st_size, 8192)
+
     def test_same_version_drift_is_detected(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "canonical"
@@ -72,6 +106,33 @@ class PayloadContractTests(unittest.TestCase):
             path.write_text(json.dumps(doc))
             self.assertTrue(any("plugin.json.capabilities" in err
                                 for err in validate(replica)))
+
+    def test_stock_epub_bearer_never_follows_response_controlled_url(self):
+        """Keep the fixed HTTPS origin: row.download_url is not a trusted host."""
+        with tempfile.TemporaryDirectory() as tmp:
+            replica = Path(tmp) / "plugin"
+            shutil.copytree(PAYLOAD, replica)
+            target = replica / "device.json"
+            device = json.loads(target.read_text())
+            original = device["download"]["url"]
+            for forged in (
+                "{url}",  # an arbitrary row URL could exfiltrate Bearer
+                "https://attacker.example/books/{id}/download?v=1.6.14",
+                "http://my.ybx.app/api/v1/crosspoint/books/{id}/download?v=1.6.14",
+            ):
+                device["download"]["url"] = forged
+                target.write_text(json.dumps(device))
+                self.assertTrue(any(
+                    "fixed same-origin YBX book-id URL" in err
+                    for err in validate(replica)
+                ), forged)
+            device["download"]["url"] = original
+            device["download"]["headers"]["Authorization"] = "Bearer PUBLIC"
+            target.write_text(json.dumps(device))
+            self.assertTrue(any(
+                "scope the Bearer token to YBX" in err
+                for err in validate(replica)
+            ))
 
     def test_missing_request_version_telemetry_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

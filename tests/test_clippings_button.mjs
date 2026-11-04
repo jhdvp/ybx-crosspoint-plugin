@@ -4,21 +4,22 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 const js = readFileSync('ybx.crosspoint-plugin/plugin.js', 'utf8');
-const first = js.indexOf('    const clippingButton = document.createElement');
+const first = js.indexOf('    const revokeClippingKey = async () => {');
 const last = js.indexOf('    const syncButton = document.createElement', first);
 assert.ok(first > 0 && last > first, 'read actual button handler');
-const realHandler = js.slice(first, last) + '\nglobalThis.clippingButton = clippingButton;';
+const realHandler = js.slice(first, last) + '\nglobalThis.clippingButton = clippingButton; globalThis.revokeClipButton = revokeClipButton;';
 const BASE = 'https://my.ybx.app/api/v1/crosspoint/kosync';
 const KEY = 'kosync_' + 'a'.repeat(43);
 
 function scenario({ enabled = false, consent = true, relayStatus = 200,
   response = { kosync_key: KEY, sync_url: BASE, clippings_enabled: true },
-  failReadback = false, relayAvailable = true, oldServer = '',
+  failReadback = false, relayAvailable = true, revokeFails = false, oldServer = '',
   token = { access_token: 'cp_valid' }, existingBackup = null } = {}) {
   const values = { koServerUrl: oldServer, koUsername: '', koPassword: '',
     koServerType: 2, koMatchMethod: 0, libraryUseMetadata: 0, koSendMetadata: 0,
     koSyncBehavior: 0, koSyncClippings: Number(enabled) };
   const writes = [], messages = [], calls = [], confirms = [], backups = [];
+  const revokeResponse = { status: revokeFails ? 503 : 204 };
   let reads = 0;
   const context = vm.createContext({
     document: { createElement: () => ({ type: '', className: '', disabled: false,
@@ -41,6 +42,7 @@ function scenario({ enabled = false, consent = true, relayStatus = 200,
     writeJson: async (path, value) => backups.push({ path, value }),
     api: { relay: relayAvailable ? async (...args) => {
       calls.push(args);
+      if (String(args[1]).endsWith('/auth/clippings-key/revoke')) return { status: revokeResponse.status };
       return { status: relayStatus, body: JSON.stringify(response) };
     } : null },
     verifyPluginSync: async (key) => {
@@ -56,7 +58,7 @@ function scenario({ enabled = false, consent = true, relayStatus = 200,
   });
   vm.runInContext(realHandler, context);
   return { click: () => context.clippingButton.onclick(), button: context.clippingButton,
-    context, values, writes, messages, calls, confirms, backups };
+    context, values, writes, messages, calls, confirms, backups, revokeResponse };
 }
 
 test('quote activation changes only KoSync credentials and clipping flag, not metadata or book matching', async () => {
@@ -93,8 +95,26 @@ test('disabling quotes changes only one flag, leaves progress and metadata intac
   assert.equal(t.context.syncValue.textContent, 'YBX · KOSync (без цитат)');
   assert.equal(t.values.koSendMetadata, 0);
   assert.equal(t.values.libraryUseMetadata, 0);
-  assert.equal(t.calls.length, 0);
+  assert.equal(t.calls.length, 1);
+  assert.ok(t.calls[0][1].endsWith('/auth/clippings-key/revoke'));
+  assert.equal(t.calls[0][2].Authorization, 'Bearer cp_valid');
+  assert.equal(t.context.revokeClipButton.hidden, true);
   assert.match(t.button.textContent, /^Включить/);
+});
+
+test('quote revoke outage disables locally but leaves a retry button and visible warning', async () => {
+  const t = scenario({ enabled: true, oldServer: BASE, revokeFails: true });
+  await t.click();
+  assert.equal(t.values.koSyncClippings, 0);
+  assert.equal(t.values.koServerUrl, BASE);
+  assert.equal(t.context.revokeClipButton.hidden, false);
+  assert.equal(t.messages.at(-1)[1], 'err');
+  assert.match(t.messages.at(-1)[0], /серверный ключ ещё действителен/);
+  t.revokeResponse.status = 204;
+  await t.context.revokeClipButton.onclick();
+  assert.equal(t.context.revokeClipButton.hidden, true);
+  assert.equal(t.messages.at(-1)[1], 'ok');
+  assert.equal(t.values.koSyncClippings, 0);
 });
 
 test('declined consent mints nothing, writes nothing and preserves other server', async () => {

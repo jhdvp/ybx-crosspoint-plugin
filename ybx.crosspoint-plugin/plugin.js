@@ -1134,6 +1134,37 @@ CrossPoint.registerPlugin(async (container, api) => {
         restoreButton.disabled = false;
       }
     };
+    // Reader-side off does not invalidate the quote proof by itself. Revoke
+    // the dedicated server permission while leaving the normal KOSync key.
+    const revokeClippingKey = async () => {
+      if (!token?.access_token || typeof api.relay !== 'function') {
+        throw new Error('невозможно отозвать ключ без привязки YBX');
+      }
+      const revoked = await api.relay('POST', API + '/api/v1/crosspoint/auth/clippings-key/revoke',
+        { Authorization: 'Bearer ' + token.access_token }, '');
+      if (!revoked || revoked.status !== 204) {
+        throw new Error('сервер не подтвердил отзыв ключа цитат (HTTP '
+          + (revoked?.status || 'нет ответа') + ')');
+      }
+    };
+    const revokeClipButton = document.createElement('button');
+    revokeClipButton.type = 'button';
+    revokeClipButton.textContent = 'Отозвать ключ цитат на сервере';
+    revokeClipButton.hidden = clipsEnabled(current)
+      || settingValue(current, 'koServerUrl') !== CLIPPINGS_KOSYNC_URL;
+    revokeClipButton.disabled = !token;
+    revokeClipButton.onclick = async () => {
+      revokeClipButton.disabled = true;
+      try {
+        await revokeClippingKey();
+        revokeClipButton.hidden = true;
+        message('Серверный доступ к цитатам отозван. KOSync позиции сохранён.', 'ok');
+      } catch (error) {
+        message('Не удалось отозвать ключ цитат: ' + error.message, 'err');
+      } finally {
+        revokeClipButton.disabled = !token;
+      }
+    };
     const clippingButton = document.createElement('button');
     clippingButton.type = 'button';
     clippingButton.className = 'primary';
@@ -1153,7 +1184,19 @@ CrossPoint.registerPlugin(async (container, api) => {
           clipValue.textContent = 'Выключена в прошивке';
           clippingButton.textContent = 'Включить синхронизацию цитат';
           syncValue.textContent = 'YBX · KOSync (без цитат)';
-          message('Синхронизация цитат выключена в прошивке. Настройки KOSync сохранены.', 'ok');
+          if (settingValue(latest, 'koServerUrl') === CLIPPINGS_KOSYNC_URL) {
+            revokeClipButton.hidden = false;
+            try {
+              await revokeClippingKey();
+              revokeClipButton.hidden = true;
+              message('Цитаты выключены, серверный ключ отозван. KOSync позиции сохранён.', 'ok');
+            } catch (error) {
+              message('Цитаты выключены на ридере, но серверный ключ ещё действителен: '
+                + error.message + '. Нажмите «Отозвать ключ цитат на сервере».', 'err');
+            }
+          } else {
+            message('Синхронизация цитат выключена в прошивке. KOSync позиции сохранён.', 'ok');
+          }
           return;
         }
         if (!token?.access_token) throw new Error('сначала привяжите устройство к YBX');
@@ -1220,6 +1263,7 @@ CrossPoint.registerPlugin(async (container, api) => {
         await verifyPluginSync(key);
         clipValue.textContent = 'Включена в прошивке';
         clippingButton.textContent = 'Выключить синхронизацию цитат';
+        revokeClipButton.hidden = true;
         syncValue.textContent = 'YBX · HTTPS (цитаты)';
         syncButton.textContent = 'Обновить ключ KOSync';
         disableSyncButton.hidden = false;
@@ -1229,6 +1273,7 @@ CrossPoint.registerPlugin(async (container, api) => {
       } catch (error) {
         if (attemptedEnable) {
           try { await writeSettings({ koSyncClippings: 0 }); } catch { /* safety best effort */ }
+          try { await revokeClippingKey(); } catch { revokeClipButton.hidden = false; }
         }
         message('Не удалось настроить синхронизацию цитат: ' + error.message, 'err');
       } finally {
@@ -1853,7 +1898,7 @@ CrossPoint.registerPlugin(async (container, api) => {
       + 'HTTPS на сервере. Включённый параметр ещё не доказывает доставку в Яндекс.');
     const clippingActions = document.createElement('div');
     clippingActions.className = 'ybx-actions';
-    clippingActions.appendChild(clippingButton);
+    clippingActions.append(clippingButton, revokeClipButton);
     clippingGroup.append(clipRow, clipHint, clippingActions);
 
     actions.append(sleepButton, sleepCardButton, legacyButton, statsButton, checkButton, updateButton, signOutButton);

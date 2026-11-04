@@ -104,6 +104,6 @@ test('The web interface has three separate groups and does not mix their buttons
   assert.match(src, /settingGroup\('Цитаты · Clippings'/);
   assert.match(src, /kosyncActions\.append\(syncButton, disableSyncButton, restoreButton\)/);
   assert.match(src, /metadataGroup\.appendChild\(metadataRows\)/);
-  assert.match(src, /clippingActions\.appendChild\(clippingButton\)/);
+  assert.match(src, /clippingActions\.append\(clippingButton, revokeClipButton\)/);
   assert.deepEqual(IDS, ['libraryUseMetadata', 'koSendMetadata']);
 });

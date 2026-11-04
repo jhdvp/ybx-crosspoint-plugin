@@ -1244,12 +1244,15 @@ CrossPoint.registerPlugin(async (container, api) => {
         await writeSettings({
           koServerUrl: CLIPPINGS_KOSYNC_URL,
           koUsername: 'ybx', koPassword: key,
+          // YBX maps books by the binary hash of the EPUB it served; with the
+          // stock Filename default every clipping waits forever for a book.
+          koMatchMethod: 1,
           koSyncClippings: 1,    // Official Stock firmware setting
         });
         const saved = await readSettings({ required: true });
         for (const [name, expected] of Object.entries({
           koServerUrl: CLIPPINGS_KOSYNC_URL, koUsername: 'ybx',
-          koSyncClippings: 1,
+          koMatchMethod: 1, koSyncClippings: 1,
         })) {
           const got = settingValue(saved, name);
           if (name === 'koServerUrl' || name === 'koUsername'

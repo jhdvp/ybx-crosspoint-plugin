@@ -61,7 +61,7 @@ function scenario({ enabled = false, consent = true, relayStatus = 200,
     context, values, writes, messages, calls, confirms, backups, revokeResponse };
 }
 
-test('quote activation changes only KoSync credentials and clipping flag, not metadata or book matching', async () => {
+test('quote activation sets KoSync credentials, binary book matching and the clipping flag, not metadata', async () => {
   const t = scenario();
   await t.click();
   assert.equal(t.calls[0][0], 'POST');
@@ -72,13 +72,13 @@ test('quote activation changes only KoSync credentials and clipping flag, not me
   assert.equal(t.values.koPassword, KEY);
   assert.equal(t.values.koUsername, 'ybx');
   assert.equal(t.values.koServerType, 2);  // preserve user's server type
-  assert.equal(t.values.koMatchMethod, 0);  // preserve user's document matching
+  assert.equal(t.values.koMatchMethod, 1);  // YBX maps clippings by binary EPUB hash only
   assert.equal(t.values.koSendMetadata, 0);
   assert.equal(t.values.libraryUseMetadata, 0);
   assert.equal(t.values.koSyncBehavior, 0);
   assert.equal(t.values.koSyncClippings, 1);
   assert.deepEqual(JSON.parse(JSON.stringify(t.writes[0])), {
-    koServerUrl: BASE, koUsername: 'ybx', koPassword: KEY, koSyncClippings: 1,
+    koServerUrl: BASE, koUsername: 'ybx', koPassword: KEY, koMatchMethod: 1, koSyncClippings: 1,
   });
   assert.equal(t.backups.length, 1);
   assert.match(t.messages.at(-1)[0], /фактическую передачу/);

@@ -1,58 +1,40 @@
-# Stock CrossPoint 2.0 RC — YBX Clippings button (candidate)
+# Stock CrossPoint — независимые веб-настройки KOSync, метаданных и цитат
 
-2026-11-04. This is Stock (not custom YBX Native), a local unreleased branch.
+Дата: 2026-11-04. **Черновик PR #17**, относится только к официальной Stock CrossPoint 2.0 RC и YBX Stock-плагину 1.6.14, а не к Native-прошивке.
 
-## Web settings
+## Три самостоятельных блока
 
-`Настройки → Синхронизация цитат → Включить синхронизацию цитат`:
+### KOSync · позиции чтения
 
-- obtains a separate quote-capable `kosync_` credential from YBX API over
-  authenticated HTTPS, with explicit user consent (never silently widens the
-  progress-only key);
-- writes the **verified HTTPS** KOSync URL, username and password to
-  `/api/settings` on official Stock 2.0, along with:
-  `koServerType=0` (CrossPoint), `koMatchMethod=1` (Binary),
-  `libraryUseMetadata=1` (Library → Use Book Metadata),
-  `koSendMetadata=1` (Sync → Send Document Metadata),
-  `koSyncBehavior=1` (Smart Sync), `koSyncClippings=1`;
-- checks all non-secret values via readback; checks KOSync credentials on the
-  HTTPS server's `/users/auth`. The original password is masked by firmware.
-- distinguishes **settings written** from a completed guest→server→Yandex
-  exchange. The reader has to perform Sync Progress to prove delivery.
+- Кнопка подключения YBX и обновления прогресс-ключа; отдельная кнопка отключения YBX KOSync с подтверждением.
+- Затрагивает адрес, логин, ключ и профиль синхронизации позиции (Smart Sync / сопоставление файлов). **Не меняет** `libraryUseMetadata` и `koSendMetadata`.
+- Отключение KOSync YBX также отключает `koSyncClippings` — без сервера цитаты отправить нельзя. Книги и настройки метаданных не удаляются.
+- Ввод стороннего сервера сохраняется, его параметры не очищаются при отключении YBX. Кнопка восстановления прежнего профиля остаётся отдельно и объясняет необходимость повторно ввести скрытый пароль.
+- Обычный узко ограниченный KOSync-ключ продолжает обслуживать только позицию; запрещена молчаливая замена HTTPS-ключа цитат на HTTP.
 
-Stock has *no metadata matching option* in `DocumentMatchMethod`; it supports
-only `FILENAME=0` or `BINARY=1`. As the user's Stock screen shows,
-there are two independent metadata toggles:
-`libraryUseMetadata=1` indexes and displays local title/author metadata in
-Library; `koSendMetadata=1` includes metadata in sync requests. They are not a
-third document matching mode and do not by themselves confirm metadata is
-received back from the server. Binary document matching stays selected.
+### Метаданные книг
 
-The separate **Disable** action writes only `koSyncClippings=0` (no account
-removal, KOSync progress credential or book deletion). Explicitly restoring a
-former KOSync profile also clears this bit; the old progress-only KOSync button
-refuses to downgrade a quote-enabled HTTPS key onto the legacy HTTP host.
-Backing up a manually selected third-party server does not copy masked
-passwords and never overwrites an older saved backup.
+Два **независимых** переключателя с чтением и последующей проверкой сохранения каждого значения:
 
-## Required server side
+- `libraryUseMetadata` — *Library → Use Book Metadata*: библиотека использует название и автора из EPUB для локального индекса и отображения.
+- `koSendMetadata` — *CrossPoint Sync → Send Document Metadata*: ридер передаёт метаданные документа вместе с прогрессом.
 
-A quote-capable KOSync key has a separate, TLS-only clipping capability and a
-short MD5 proof representation matching the **unmodified** Stock ClippingSync
-request (`x-auth-user`, `x-auth-key`). Progress uses the raw key over HTTP Basic
-**only over TLS** for such quote-enabled keys. Existing progress-only keys
-remain limited to progress and may still use their old HTTP compatibility path.
-The dedicated clipping route is exactly `/api/v1/crosspoint/kosync/api/v1/clippings/{hash}`.
-No quote content or quote-capable progress credential may cross plain HTTP.
+Они **не включают цитаты**, не получают новые токены, не меняют KOSync и друг друга. Варианты `koMatchMethod`: «По имени файла» / «Бинарный» — отдельная настройка идентификации книг, не третий режим метаданных. Кнопки метаданных её не переписывают.
 
-## Release conditions
+### Цитаты · Clippings
 
-- Do not promote Stable 1.6.14 until the matching server PR is reviewed and
-  deployed together with the plugin changes, behind a staged check.
-- Test the exact Stock firmware's HTTPS clipping GET/PUT/GET, stock UI create,
-  YBX server persisted quote, Yandex outbox and reverse pull. A client test
-  returning 200 and a save-to-settings readback alone are not proof.
-- Open EPUB without the existing `multi_heap_free` / heap corruption crash,
-  and check TLS behaviour on physical X3/X4/X4 Pro as available.
-- Verify installed old accounts, manual third-party KOSync, opt-out, restore,
-  token rotation, offline retry, revocation and metadata send on real hardware.
+- Отдельная кнопка «Включить синхронизацию цитат» запрашивает у YBX отдельный ключ с правом цитат, устанавливает HTTPS-адрес KOSync, имя пользователя, пароль и **только** `koSyncClippings=1`.
+- `koSendMetadata`, `libraryUseMetadata`, `koMatchMethod`, `koSyncBehavior` и выбранный тип сервера при этом остаются неизменными.
+- Подтверждение перед заменой KOSync-профиля, резервная копия прежнего адреса/имени пользователя без пароля, проверка записанных настроек, дополнительный серверный запрос проверки выданного ключа.
+- «Выключить» сбрасывает **только `koSyncClippings=0`**: синхронизация позиции и метаданные сохраняются.
+- Веб-панель честно различает «настройки записаны» и «цитата действительно доставлена в Яндекс».
+
+## Ограничения релиза
+
+Официальная Stock-прошивка использует MD5 от KOSync-пароля в Clippings v2; поэтому серверная реализация должна обслуживать именно этот протокол с отдельным разрешением, только по HTTPS. Нельзя предоставлять доступ цитатам старому узкому `kosync_` ключу по HTTP. Серверная работа остаётся отдельной веткой и **не развёрнута**.
+
+**Критический нюанс:** Stock-прошивка может выполнять HTTPS с отключённой проверкой сертификата (`setInsecure()` в клиентском коде); простое использование `https://` ещё не является доказательством полноценной проверки TLS. До Stable необходимо подтвердить транспортную защищённость для Stock и совместимость оригинального устройства.
+
+Проверки кода и mocked-web тесты не равнозначны полному E2E. До публикации необходимы реальные Stock QR → KOSync → создание цитаты → GET/PUT/GET → YBX Server → Yandex → обратное получение и проверка EPUB без прежнего `multi_heap_free` (issue #27 эмулятора). Стабильная 1.6.13 и production не менялись.
+
+PR: https://github.com/jhdvp/ybx-crosspoint-plugin/pull/17

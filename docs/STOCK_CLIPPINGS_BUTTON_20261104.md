@@ -38,3 +38,29 @@
 Проверки кода и mocked-web тесты не равнозначны полному E2E. До публикации необходимы реальные Stock QR → KOSync → создание цитаты → GET/PUT/GET → YBX Server → Yandex → обратное получение и проверка EPUB без прежнего `multi_heap_free` (issue #27 эмулятора). Стабильная 1.6.13 и production не менялись.
 
 PR: https://github.com/jhdvp/ybx-crosspoint-plugin/pull/17
+
+## QA продолжения (4 ноября 2026)
+
+- После переноса элементов интерфейса в отдельные группы исправлены сценарии
+  в `test_plugin_lifecycle.mjs`. Полный `node --test tests/*.mjs`:
+  **67 passed / 0 failed**; Python package/release ZIP:
+  **13 passed + 4 subtests**, `tools/validate_payload.py`: passed.
+- GitHub Actions `Validate CrossPoint Plugin` для коммита `1076b6c` завершился
+  **success**. Проверены включение/отключение обоих метаданных, независимость
+  адреса/ключей и цитат, обратная проверка сохранения, отмена отключения KOSync,
+  защита настроек стороннего сервера и очистка Clippings при отвязке YBX.
+- Headless Google Chrome загрузил **настоящий** `plugin.js` из ветки в
+  изолированной HTML-оболочке со строго синтетическими данными, без вызовов
+  production: три раздела успешно появились в DOM, обработчик инициализации
+  завершился без исключений. Это browser render smoke, **не** hardware E2E.
+- Совместимая серверная ветка `feat/stock1614-secure-clipsync-20261104`, PR #46:
+  `PYTHONPATH=src pytest` по Stock/Clippings/KoSync API =
+  **128 passed, 88 skipped** (неподключённые компоненты окружения).
+- Проверка исходников **оригинальной Stock-прошивки** обнаружила, что
+  `ClippingSync.cpp` использует `SecureHttpClient::setInsecure()`, как и
+  несколько путей KoSync. HTTPS является необходимым, но **само по себе не
+  подтверждает валидацию сертификата сервера на ридере**. Нужна отдельная
+  проверка безопасности/фикса upstream-прошивки до release.
+
+Ни тестовые данные, ни неиспытанный Clippings PR не устанавливались в Stable,
+не вызывали запись пользовательских цитат в Яндекс и не изменяли production.

@@ -18,9 +18,21 @@ In emulator [0113](https://github.com/jhdvp/ybx-esp32-emulator/blob/fix/stock161
 
 ## Not yet verified / release hold
 
-- Page-turning beyond the cover in the **real downloaded EPUB**: QMP returned `accepted: true` but the framebuffer did not change on taps while the reader was open. GT911/QMP stale-touch behaviour is a separate emulator issue; do not claim it is a reader bug or that full content pagination passed.
+- **Page turning is now verified** on the downloaded real EPUB: native original X4 Pro GPIO `down/up` buttons through QEMU's `/machine/x4pro-keys` reliably changed the actual firmware framebuffer. Checks: 1 initial down, 4 down + 1 up, and 3 final down/up/down = **9/9 visual page transitions**, with no `multi_heap_free`, heap corruption or panic events in UART. This fixes the *test input method*, not the original firmware. The old QMP GT911 click path remains intermittently unreliable as an emulator issue. See emulator report `0114-stock1614-real-epub-hardware-page-turn-20261104.md`.
 - Actual Yandex quote push/pull under the real account from **Stock** after enabling the new three browser settings. The server support is in [PR #46](https://github.com/jhdvp/xteink-yandex-books/pull/46); it has not been merged/deployed.
 - Real physical reader smoke test. CI was unable to provision workers on account of GitHub billing/spending limitation, not assertion failures.
 - Original CrossPoint's `setInsecure()` TLS peer-validation weakness is inherited. HTTPS routes are enforced server-side for the separately minted quote proof, but that does not protect against active TLS MITM on unmodified stock firmware.
 
 **Decision:** excellent Stock 1.6.14 catalog, QR, download, original-firmware synthetic quote protocol evidence, but **NOT ready to claim full end-to-end real Yandex quote sync** and **NOT auto-promoted to Stable**.
+
+## Firmware settings round-trip acceptance (same isolated Stock QEMU)
+
+When the original Stock `File Transfer → Join a Network` activated the stock HTTP admin endpoint, its real `/api/settings` returned 71 settings. Tested three **independent** web-plugin-managed flags directly through the actual firmware HTTP API:
+
+| Setting | Write → readback | Restore → full 71-value equality |
+| --- | --- | --- |
+| `libraryUseMetadata` | PASS | PASS |
+| `koSendMetadata` | PASS | PASS |
+| `koSyncClippings` | PASS | PASS |
+
+Each toggled only **its own key**; the KOSync URL, credentials, server type, matching mode, sync mode and all unrelated settings were identical before and after. Values were restored on the synthetic guest. Sensitive KOSync credentials and real YBX login tokens were neither printed nor committed. The UI's actual button logic is covered by independent Node/browser tests (currently **73/73**). The quote-key mint button is expected to fail safely with HTTP **404** until server PR #46 is deployed; its regression confirms no firmware settings can be changed on that failure.

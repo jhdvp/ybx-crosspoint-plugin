@@ -126,6 +126,15 @@ CrossPoint.registerPlugin(async (container, api) => {
       .ybx-card span { font-size:11px; color:var(--soft); }
       .ybx-card .ybx-bar { margin-top:auto; }
       .ybx-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+      .ybx-setting-group { margin:16px 0 0; padding:14px; border:1px solid var(--line);
+        border-radius:12px; background:var(--plate); min-width:0; }
+      .ybx-setting-group h3 { margin:0 0 5px; font-size:15px; line-height:1.3; }
+      .ybx-setting-group > .ybx-hint { margin:5px 0 12px; }
+      .ybx-setting-group .ybx-row { gap:12px; }
+      .ybx-setting-group .ybx-actions { margin-top:10px; }
+      .ybx-setting-group .ybx-actions button { flex:1 1 180px; }
+      .ybx-setting-group .ybx-row button { flex:none; min-width:105px; }
+      .ybx-setting-group .ybx-value { overflow-wrap:anywhere; }
       .ybx-update { margin:12px 0 0; padding:10px 12px; border:1px solid var(--ink);
         background:var(--plate); font-size:13px; }
       .ybx-update strong { display:block; font-size:14px; }
@@ -1017,11 +1026,11 @@ CrossPoint.registerPlugin(async (container, api) => {
       + 'не было — убирает свою карточку, и ридер снова берёт обои из /.sleep.';
     sleepHelp.append(sleepHelpTitle, sleepHelpText);
     rows.appendChild(sleepHelp);
-    rows.appendChild(syncRow);
-    const clipsEnabled = (settings) => {
-      const raw = settingValue(settings, 'koSyncClippings');
+    const settingEnabled = (settings, key) => {
+      const raw = settingValue(settings, key);
       return raw === true || raw === 1 || String(raw).toLowerCase() === 'true' || String(raw) === '1';
     };
+    const clipsEnabled = (settings) => settingEnabled(settings, 'koSyncClippings');
     const clipRow = document.createElement('div');
     clipRow.className = 'ybx-row';
     const clipLabel = document.createElement('span');
@@ -1031,16 +1040,66 @@ CrossPoint.registerPlugin(async (container, api) => {
     clipValue.className = 'ybx-value';
     clipValue.textContent = clipsEnabled(current) ? 'Включена в прошивке' : 'Выключена в прошивке';
     clipRow.append(clipLabel, clipValue);
-    rows.appendChild(clipRow);
     const clipHint = document.createElement('p');
     clipHint.className = 'ybx-hint';
-    clipHint.textContent = 'Отдельно от синхронизации позиции: включение настроит HTTPS, '
-      + 'передачу метаданных KOSync, использование метаданных книг в Library '
-      + 'и Smart Sync. Сопоставление файлов остаётся бинарным; методы '
-      + 'сопоставления файлов — «По имени файла» и «Бинарный». Эти параметры '
-      + 'отличаются от двух переключателей метаданных. Реальная доставка цитат '
-      + 'проверяется после синхронизации на устройстве.';
-    rows.appendChild(clipHint);
+    clipHint.textContent = 'Цитаты используют KOSync, но отдельный ключ с правами на текст. '
+      + 'Включение настроит HTTPS-адрес YBX. Метаданные и сопоставление книг '
+      + 'не изменятся. После настройки проверьте Sync Progress на ридере.';
+    // Metadata settings are independent of the progress key and quote sync.
+    const metadataOptions = [
+      ['libraryUseMetadata', 'Использовать метаданные книги', 'Library: название и автор из EPUB'],
+      ['koSendMetadata', 'Отправлять метаданные документа', 'KOSync: метаданные книги вместе с прогрессом'],
+    ];
+    const metadataRows = document.createElement('div');
+    metadataRows.className = 'ybx-list';
+    const metadataButtons = {};
+    for (const [key, label, hint] of metadataOptions) {
+      const row = document.createElement('div');
+      row.className = 'ybx-row';
+      const title = document.createElement('div');
+      const caption = document.createElement('strong');
+      caption.textContent = label;
+      const explanation = document.createElement('p');
+      explanation.className = 'ybx-hint';
+      explanation.textContent = hint;
+      title.append(caption, explanation);
+      const control = document.createElement('button');
+      control.type = 'button';
+      const update = (snapshot) => {
+        const exists = settingValue(snapshot, key) !== undefined;
+        const active = exists && settingEnabled(snapshot, key);
+        control.textContent = !exists ? 'Недоступно' : active ? 'Выключить' : 'Включить';
+        control.disabled = !exists;
+        control.setAttribute('aria-pressed', active ? 'true' : 'false');
+        control.setAttribute('aria-label', label + ': ' + (active ? 'включено' : 'выключено'));
+      };
+      update(current);
+      control.onclick = async () => {
+        control.disabled = true;
+        try {
+          const latest = await readSettings({ required: true });
+          if (settingValue(latest, key) === undefined) {
+            throw new Error('прошивка не поддерживает ' + key);
+          }
+          const next = Number(!settingEnabled(latest, key));
+          await writeSettings({ [key]: next });
+          const saved = await readSettings({ required: true });
+          if (Number(settingValue(saved, key)) !== next) {
+            throw new Error('прошивка не сохранила ' + key);
+          }
+          update(saved);
+          message(label + (next ? ': включено.' : ': выключено.')
+            + ' Другие настройки не изменены.', 'ok');
+        } catch (error) {
+          message('Не удалось сохранить метаданные: ' + error.message, 'err');
+        } finally {
+          control.disabled = !token;
+        }
+      };
+      metadataButtons[key] = control;
+      row.append(title, control);
+      metadataRows.appendChild(row);
+    }
     const restoreButton = document.createElement('button');
     restoreButton.type = 'button';
     restoreButton.textContent = 'Вернуть прежний KOSync';
@@ -1057,13 +1116,14 @@ CrossPoint.registerPlugin(async (container, api) => {
       try {
         const values = { koServerUrl: previous.koServerUrl, koUsername: previous.koUsername,
           koPassword: '', koSyncClippings: 0 };
-        for (const key of ['libraryUseMetadata', 'koMatchMethod', 'koSyncBehavior', 'koSendMetadata']) {
+        for (const key of ['koMatchMethod', 'koSyncBehavior']) {
           if (previous[key] !== undefined && previous[key] !== null) values[key] = previous[key];
         }
         await writeSettings(values);
         await fetch('/delete', { method: 'POST', body: new URLSearchParams({ path: KOSYNC_PREVIOUS }) });
         restoreButton.hidden = true;
         syncValue.textContent = 'свой сервер';
+        disableSyncButton.hidden = true;
         syncButton.textContent = 'Настроить KOSync';
         clipValue.textContent = 'Выключена в прошивке';
         clippingButton.textContent = 'Включить синхронизацию цитат';
@@ -1103,9 +1163,8 @@ CrossPoint.registerPlugin(async (container, api) => {
         const oldUser = settingValue(latest, 'koUsername') || '';
         if (!window.confirm('Включить синхронизацию цитат YBX?\n\n'
             + 'Будут установлены HTTPS-сервер YBX, ключ с правами на цитаты, '
-            + 'передача метаданных документа, использование метаданных книг '
-            + 'в библиотеке, бинарное сопоставление EPUB и Smart Sync. '
-            + 'Текущие настройки KOSync этого ридера могут измениться.\n\n'
+            + 'и отправка цитат. Текущий KOSync-ключ и адрес могут быть заменены, '
+            + 'но параметры метаданных, сопоставления книг и Smart Sync сохранятся.\n\n'
             + 'Прежний сервер: ' + (oldServer || 'не настроен')
             + '\n\nДругие источники книг и их файлы не затрагиваются. Продолжить?')) {
           message('Включение цитат отменено; настройки не изменены.');
@@ -1130,10 +1189,8 @@ CrossPoint.registerPlugin(async (container, api) => {
         if (oldServer !== CLIPPINGS_KOSYNC_URL && !await readJson(KOSYNC_PREVIOUS)) {
           await writeJson(KOSYNC_PREVIOUS, {
             koServerUrl: oldServer, koUsername: oldUser,
-            libraryUseMetadata: settingValue(latest, 'libraryUseMetadata'),
             koMatchMethod: settingValue(latest, 'koMatchMethod'),
             koSyncBehavior: settingValue(latest, 'koSyncBehavior'),
-            koSendMetadata: settingValue(latest, 'koSendMetadata'),
             koSyncClippings: settingValue(latest, 'koSyncClippings'),
             savedAt: new Date().toISOString(),
           });
@@ -1144,17 +1201,12 @@ CrossPoint.registerPlugin(async (container, api) => {
           koServerUrl: CLIPPINGS_KOSYNC_URL,
           koUsername: 'ybx', koPassword: key,
           koServerType: 0,       // CrossPoint protocol
-          koMatchMethod: 1,      // Binary document matching (distinct from metadata)
-          libraryUseMetadata: 1, // Library -> Use Book Metadata
-          koSendMetadata: 1,     // Sync -> Send Document Metadata
-          koSyncBehavior: 1,     // Smart Sync
           koSyncClippings: 1,    // Official Stock firmware setting
         });
         const saved = await readSettings({ required: true });
         for (const [name, expected] of Object.entries({
           koServerUrl: CLIPPINGS_KOSYNC_URL, koUsername: 'ybx',
-          koServerType: 0, koMatchMethod: 1, libraryUseMetadata: 1,
-          koSendMetadata: 1, koSyncBehavior: 1, koSyncClippings: 1,
+          koServerType: 0, koSyncClippings: 1,
         })) {
           const got = settingValue(saved, name);
           if (name === 'koServerUrl' || name === 'koUsername'
@@ -1170,7 +1222,8 @@ CrossPoint.registerPlugin(async (container, api) => {
         clippingButton.textContent = 'Выключить синхронизацию цитат';
         syncValue.textContent = 'YBX · HTTPS (цитаты)';
         syncButton.textContent = 'Обновить ключ KOSync';
-        message('Настройки цитат и отправка метаданных сохранены. '
+        disableSyncButton.hidden = false;
+        message('Настройки цитат сохранены, метаданные не изменены. '
           + 'Сервер подтвердил ключ; запустите Sync Progress в книге, '
           + 'чтобы проверить фактическую передачу цитат.', 'ok');
       } catch (error) {
@@ -1214,6 +1267,7 @@ CrossPoint.registerPlugin(async (container, api) => {
           await writeSettings({ koServerUrl: KOSYNC_URL, koPassword: key });
           await verifyPluginSync(key);
           syncValue.textContent = 'YBX · через плагин';
+          disableSyncButton.hidden = false;
           syncButton.textContent = 'Обновить ключ KOSync';
           message('Адрес сохранён, сервер принимает ключ. Проверьте '
             + 'фактическую синхронизацию позиции на ридере.', 'ok');
@@ -1256,7 +1310,6 @@ CrossPoint.registerPlugin(async (container, api) => {
           koUsername: settingValue(latest, 'koUsername') || '',
           koMatchMethod: settingValue(latest, 'koMatchMethod'),
           koSyncBehavior: settingValue(latest, 'koSyncBehavior'),
-          koSendMetadata: settingValue(latest, 'koSendMetadata'),
           savedAt: new Date().toISOString(),
         });
         restoreButton.hidden = false;
@@ -1266,13 +1319,13 @@ CrossPoint.registerPlugin(async (container, api) => {
           koPassword: key,
           koMatchMethod: 1,
           koSyncBehavior: 1,
-          koSendMetadata: 1,
         });
         // POST may succeed while firmware drops unknown keys. The readback
         // validates visible settings; server auth validates the credential.
         // Only the reader's next sync proves its masked password was stored.
         await verifyPluginSync(key);
         syncValue.textContent = 'YBX · через плагин';
+        disableSyncButton.hidden = false;
         syncButton.textContent = 'Обновить ключ KOSync';
         message('Адрес сохранён, сервер принимает ключ. Проверьте '
           + 'фактическую синхронизацию позиции на ридере.', 'ok');
@@ -1282,6 +1335,45 @@ CrossPoint.registerPlugin(async (container, api) => {
         // After confirmation or cancellation, this action remains available
         // for future QR re-logins and key rotations.
         syncButton.disabled = !token;
+      }
+    };
+    // Disabling YBX progress also disables quote sync; metadata is unaffected.
+    const disableSyncButton = document.createElement('button');
+    disableSyncButton.type = 'button';
+    disableSyncButton.textContent = 'Отключить KOSync YBX';
+    disableSyncButton.hidden = mode !== 'plugin';
+    disableSyncButton.disabled = !token;
+    disableSyncButton.onclick = async () => {
+      disableSyncButton.disabled = true;
+      try {
+        const latest = await readSettings({ required: true });
+        if (!pointsToYbx(latest)) {
+          message('KOSync YBX уже отключён. Настройки другого сервера не затронуты.');
+          return;
+        }
+        const quotesOn = clipsEnabled(latest);
+        if (!window.confirm('Отключить KOSync YBX на ридере?\n\n'
+            + (quotesOn ? 'Синхронизация цитат тоже будет отключена.\n' : '')
+            + 'Адрес и пароль YBX будут очищены. Метаданные, библиотека и книги сохранятся. '
+            + 'Прежний профиль можно восстановить отдельно.')) {
+          message('Отключение KOSync отменено; настройки не изменены.');
+          return;
+        }
+        await writeSettings({ ...SYNC_OFF, koSyncClippings: 0 });
+        const saved = await readSettings({ required: true });
+        if (pointsToYbx(saved) || clipsEnabled(saved)) {
+          throw new Error('прошивка не подтвердила отключение KOSync');
+        }
+        syncValue.textContent = 'не настроено через YBX';
+        syncButton.textContent = 'Настроить KOSync';
+        disableSyncButton.hidden = true;
+        clipValue.textContent = 'Выключена в прошивке';
+        clippingButton.textContent = 'Включить синхронизацию цитат';
+        message('KOSync YBX отключён. Метаданные и локальные книги не изменены.', 'ok');
+      } catch (error) {
+        message('Не удалось отключить KOSync YBX: ' + error.message, 'err');
+      } finally {
+        disableSyncButton.disabled = !token;
       }
     };
     // «Свой» is the firmware mode that shows /sleep.bmp, so switching the card on
@@ -1732,8 +1824,41 @@ CrossPoint.registerPlugin(async (container, api) => {
         signOutButton.disabled = false;
       }
     };
-    actions.append(sleepButton, sleepCardButton, legacyButton, statsButton, syncButton, clippingButton, restoreButton, checkButton, updateButton, signOutButton);
+    const settingGroup = (heading, description) => {
+      const group = document.createElement('div');
+      group.className = 'ybx-setting-group';
+      const title = document.createElement('h3');
+      title.textContent = heading;
+      const hint = document.createElement('p');
+      hint.className = 'ybx-hint';
+      hint.textContent = description;
+      group.append(title, hint);
+      return group;
+    };
+    const kosyncGroup = settingGroup('KOSync · позиции чтения',
+      'Подключение сервера, ключ и двусторонняя синхронизация позиции. '
+      + 'Метаданные и цитаты настраиваются отдельно.');
+    const kosyncActions = document.createElement('div');
+    kosyncActions.className = 'ybx-actions';
+    kosyncActions.append(syncButton, disableSyncButton, restoreButton);
+    kosyncGroup.append(syncRow, kosyncActions);
+
+    const metadataGroup = settingGroup('Метаданные книг',
+      'Два независимых параметра прошивки. Не меняют KOSync и не включают цитаты. '
+      + 'Сопоставление документов остаётся прежним.');
+    metadataGroup.appendChild(metadataRows);
+
+    const clippingGroup = settingGroup('Цитаты · Clippings',
+      'Отдельная синхронизация выделений через KOSync. Нужны YBX и поддержка '
+      + 'HTTPS на сервере. Включённый параметр ещё не доказывает доставку в Яндекс.');
+    const clippingActions = document.createElement('div');
+    clippingActions.className = 'ybx-actions';
+    clippingActions.appendChild(clippingButton);
+    clippingGroup.append(clipRow, clipHint, clippingActions);
+
+    actions.append(sleepButton, sleepCardButton, legacyButton, statsButton, checkButton, updateButton, signOutButton);
     settings.appendChild(rows);
+    settings.append(kosyncGroup, metadataGroup, clippingGroup);
     settings.appendChild(statsHint);
     settings.appendChild(updateBanner);
     settings.appendChild(actions);

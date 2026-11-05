@@ -71,18 +71,18 @@ async function sleepSettings({ mode = 3, cardOn = false, token = { access_token:
 test('the sleep switch turns the statistics card on and back off', async () => {
   const screen = await sleepSettings({ mode: 3 });  // «Обложка», card off
   assert.match(screen.context.sleepValue.textContent, /^Обложка · обои ридера/);
-  assert.equal(screen.context.sleepButton.textContent, 'Включить экран сна со статистикой');
+  assert.equal(screen.context.sleepButton.textContent, 'Включить экран сна');
 
   await screen.context.sleepButton.onclick();
   assert.deepEqual(screen.calls, [[true, 3]]);
   assert.equal(screen.context.sleepMode(), 2);
-  assert.equal(screen.context.sleepButton.textContent, 'Выключить экран сна со статистикой');
+  assert.equal(screen.context.sleepButton.textContent, 'Выключить экран сна');
   assert.equal(screen.context.sleepCardButton.disabled, false);
 
   await screen.context.sleepButton.onclick();
   assert.deepEqual(screen.calls, [[true, 3], [false, 2]]);
   assert.equal(screen.context.sleepMode(), 3);
-  assert.equal(screen.context.sleepButton.textContent, 'Включить экран сна со статистикой');
+  assert.equal(screen.context.sleepButton.textContent, 'Включить экран сна');
   assert.equal(screen.context.sleepCardButton.disabled, true);
   assert.match(screen.messages.at(-1)[1], /карточка убрана/);
 });
@@ -109,7 +109,7 @@ test('a refused change leaves the switch where it was', async () => {
   const screen = await sleepSettings({ mode: 3, failure: 'HTTP 500' });
   await screen.context.sleepButton.onclick();
   assert.equal(screen.context.sleepMode(), 3);
-  assert.equal(screen.context.sleepButton.textContent, 'Включить экран сна со статистикой');
+  assert.equal(screen.context.sleepButton.textContent, 'Включить экран сна');
   assert.equal(screen.context.sleepButton.disabled, false);
   assert.match(screen.messages.at(-1)[1], /Не удалось изменить экран сна/);
 });
@@ -262,7 +262,7 @@ test('rotation mints the narrow key over TLS and validates it on the sync host',
   assert.equal(verify[2].Authorization,
     'Basic ' + Buffer.from('ybx:kosync_test').toString('base64'));
   assert.equal(host.context.syncButton.disabled, false);
-  assert.match(host.messages.at(-1)[0], /сервер принимает ключ/);
+  assert.match(host.messages.at(-1)[0], /Ключ обновлён/);
 });
 
 test('the ordinary KOSync button cannot downgrade quote-enabled HTTPS credentials to HTTP', async () => {
@@ -710,7 +710,7 @@ test('the old-card button shows only with the switch off and asks first', async 
   const screen = await sleepSettings({ mode: 3, legacy: true });
   await screen.context.legacyButton.onclick();
   assert.deepEqual(screen.calls, [['legacy']]);
-  assert.match(screen.messages.at(-1)[1], /sleep-legacy\.bmp/);
+  assert.match(screen.messages.at(-1)[1], /резервная копия/);
   assert.equal(screen.context.legacyButton.hidden, true);
 });
 

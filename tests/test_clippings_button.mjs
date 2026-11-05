@@ -81,7 +81,7 @@ test('quote activation sets KoSync credentials, binary book matching and the cli
     koServerUrl: BASE, koUsername: 'ybx', koPassword: KEY, koMatchMethod: 1, koSyncClippings: 1,
   });
   assert.equal(t.backups.length, 1);
-  assert.match(t.messages.at(-1)[0], /фактическую передачу/);
+  assert.match(t.messages.at(-1)[0], /передачу цитат/);
   assert.equal(t.messages.at(-1)[1], 'ok');
   assert.match(t.button.textContent, /^Выключить/);
   assert.equal(t.button.disabled, false);

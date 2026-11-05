@@ -1,13 +1,13 @@
 {
   "title": "YBX",
-  "description": "Библиотеки Яндекс Книг и WB Книг в YBX. Скачивание EPUB и статистика чтения.",
+  "description": "Яндекс Книги, WB Книги, ЛитРес и загруженные EPUB: объединённая библиотека, поиск и статистика YBX.",
   "token": {
     "file": "token.json",
     "path": "access_token"
   },
   "browse": {
     "format": "json",
-    "url": "https://my.ybx.app/api/v1/crosspoint/catalog?shelf=reading&page={page}&limit={limit}&v=1.6.13",
+    "url": "https://my.ybx.app/api/v1/crosspoint/catalog/all?kind=reading&page={page}&limit={limit}&v=1.6.14",
     "method": "GET",
     "headers": {
       "Authorization": "Bearer {token}"
@@ -23,33 +23,45 @@
       "detail_author": "author"
     },
     "search": {
-      "url": "https://my.ybx.app/api/v1/crosspoint/catalog/search?q={query}&page={page}&limit={limit}&v=1.6.13"
+      "url": "https://my.ybx.app/api/v1/crosspoint/catalog/all?kind=all&q={query}&page={page}&limit={limit}&v=1.6.14"
     },
     "lists": [
       {
+        "title": "Все книги",
+        "url": "https://my.ybx.app/api/v1/crosspoint/catalog/all?kind=all&page={page}&limit={limit}&v=1.6.14"
+      },
+      {
         "title": "Читаю",
-        "url": "https://my.ybx.app/api/v1/crosspoint/catalog?shelf=reading&page={page}&limit={limit}&v=1.6.13"
+        "url": "https://my.ybx.app/api/v1/crosspoint/catalog/all?kind=reading&page={page}&limit={limit}&v=1.6.14"
       },
       {
         "title": "Хочу прочитать",
-        "url": "https://my.ybx.app/api/v1/crosspoint/catalog?shelf=to_read&page={page}&limit={limit}&v=1.6.13"
+        "url": "https://my.ybx.app/api/v1/crosspoint/catalog/all?kind=to_read&page={page}&limit={limit}&v=1.6.14"
       },
       {
         "title": "Прочитано",
-        "url": "https://my.ybx.app/api/v1/crosspoint/catalog?shelf=done&page={page}&limit={limit}&v=1.6.13"
+        "url": "https://my.ybx.app/api/v1/crosspoint/catalog/all?kind=done&page={page}&limit={limit}&v=1.6.14"
       },
       {
-        "title": "Все книги",
-        "url": "https://my.ybx.app/api/v1/crosspoint/catalog?shelf=all&page={page}&limit={limit}&v=1.6.13"
+        "title": "Загруженные",
+        "url": "https://my.ybx.app/api/v1/crosspoint/catalog/all?kind=uploaded&page={page}&limit={limit}&v=1.6.14"
+      },
+      {
+        "title": "Яндекс Книги",
+        "url": "https://my.ybx.app/api/v1/crosspoint/catalog?shelf=all&page={page}&limit={limit}&v=1.6.14"
       },
       {
         "title": "WB Книги",
-        "url": "https://my.ybx.app/api/v1/crosspoint/wb/catalog?page={page}&limit={limit}&v=1.6.13"
+        "url": "https://my.ybx.app/api/v1/crosspoint/wb/catalog?page={page}&limit={limit}&stock=1&v=1.6.14"
+      },
+      {
+        "title": "ЛитРес",
+        "url": "https://my.ybx.app/api/v1/crosspoint/litres/catalog?page={page}&limit={limit}&stock=1&v=1.6.14"
       }
     ]
   },
   "download": {
-    "url": "https://my.ybx.app/api/v1/crosspoint/books/{id}/download?v=1.6.13",
+    "url": "https://my.ybx.app/api/v1/crosspoint/books/{id}/download?v=1.6.14",
     "method": "GET",
     "headers": {
       "Authorization": "Bearer {token}"
@@ -91,7 +103,7 @@
     "reader.open": {
       "request": {
         "method": "POST",
-        "url": "https://my.ybx.app/api/v1/crosspoint/events?v=1.6.13",
+        "url": "https://my.ybx.app/api/v1/crosspoint/events?v=1.6.14",
         "headers": {
           "Authorization": "Bearer {token}",
           "Content-Type": "application/json"
@@ -102,7 +114,7 @@
     "reader.exit": {
       "request": {
         "method": "POST",
-        "url": "https://my.ybx.app/api/v1/crosspoint/events?v=1.6.13",
+        "url": "https://my.ybx.app/api/v1/crosspoint/events?v=1.6.14",
         "headers": {
           "Authorization": "Bearer {token}",
           "Content-Type": "application/json"
@@ -113,7 +125,7 @@
     "reader.session": {
       "request": {
         "method": "POST",
-        "url": "https://my.ybx.app/api/v1/crosspoint/events?v=1.6.13",
+        "url": "https://my.ybx.app/api/v1/crosspoint/events?v=1.6.14",
         "headers": {
           "Authorization": "Bearer {token}",
           "Content-Type": "application/json"
@@ -125,7 +137,7 @@
     "book.downloaded": {
       "request": {
         "method": "POST",
-        "url": "https://my.ybx.app/api/v1/crosspoint/events?v=1.6.13",
+        "url": "https://my.ybx.app/api/v1/crosspoint/events?v=1.6.14",
         "headers": {
           "Authorization": "Bearer {token}",
           "Content-Type": "application/json"

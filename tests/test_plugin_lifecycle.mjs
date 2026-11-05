@@ -20,7 +20,7 @@ const sync = extract('    syncButton.onclick = async () => {', '\n    const SLEE
 // scenarios cannot drift from what ships.
 const syncUrlHelpers = extract('  const syncMode = (settings) => {', '\n  const version = async () => {')
   + '\nglobalThis.syncMode = syncMode; globalThis.pointsToYbx = pointsToYbx;';
-const logout = extract('    signOutButton.onclick = async () => {', '\n    actions.append(');
+const logout = extract('    signOutButton.onclick = async () => {', '\n    const settingGroup =');
 
 const sleepConsts = extract('    const SLEEP_MODES =', '\n    const sleepButton =');
 const sleepToggle = extract('    sleepButton.onclick = async () => {', '\n    const sleepCardButton =');
@@ -71,18 +71,18 @@ async function sleepSettings({ mode = 3, cardOn = false, token = { access_token:
 test('the sleep switch turns the statistics card on and back off', async () => {
   const screen = await sleepSettings({ mode: 3 });  // «Обложка», card off
   assert.match(screen.context.sleepValue.textContent, /^Обложка · обои ридера/);
-  assert.equal(screen.context.sleepButton.textContent, 'Включить экран сна со статистикой');
+  assert.equal(screen.context.sleepButton.textContent, 'Включить экран сна');
 
   await screen.context.sleepButton.onclick();
   assert.deepEqual(screen.calls, [[true, 3]]);
   assert.equal(screen.context.sleepMode(), 2);
-  assert.equal(screen.context.sleepButton.textContent, 'Выключить экран сна со статистикой');
+  assert.equal(screen.context.sleepButton.textContent, 'Выключить экран сна');
   assert.equal(screen.context.sleepCardButton.disabled, false);
 
   await screen.context.sleepButton.onclick();
   assert.deepEqual(screen.calls, [[true, 3], [false, 2]]);
   assert.equal(screen.context.sleepMode(), 3);
-  assert.equal(screen.context.sleepButton.textContent, 'Включить экран сна со статистикой');
+  assert.equal(screen.context.sleepButton.textContent, 'Включить экран сна');
   assert.equal(screen.context.sleepCardButton.disabled, true);
   assert.match(screen.messages.at(-1)[1], /карточка убрана/);
 });
@@ -109,7 +109,7 @@ test('a refused change leaves the switch where it was', async () => {
   const screen = await sleepSettings({ mode: 3, failure: 'HTTP 500' });
   await screen.context.sleepButton.onclick();
   assert.equal(screen.context.sleepMode(), 3);
-  assert.equal(screen.context.sleepButton.textContent, 'Включить экран сна со статистикой');
+  assert.equal(screen.context.sleepButton.textContent, 'Включить экран сна');
   assert.equal(screen.context.sleepButton.disabled, false);
   assert.match(screen.messages.at(-1)[1], /Не удалось изменить экран сна/);
 });
@@ -184,6 +184,7 @@ test('settings failure must block mutation, not imply that settings are blank', 
 
 function syncScenario({
   confirm = true, synced = true, server = null, settingsFailure = false,
+  quoteSync = false,
   dropWrite = false, dropUser = false, refreshFailure = false, authStatus = 200,
   keyStatus = 200, keyBody = JSON.stringify({ kosync_key: 'kosync_test', username: 'ybx' }),
   username = null,
@@ -195,11 +196,13 @@ function syncScenario({
     koUsername: username ?? (server?.includes('/kosync') && !server.includes('/api/v1/')
       ? 'account_name' : 'ybx'),
     koPassword: 'masked',
+    koSyncClippings: Number(quoteSync),
   };
   let reads = 0;
   const saved = [];
   const context = vm.createContext({
     token, Error, URL, Date,
+    clipsEnabled: (settings) => Number(settings.find((row) => row.key === 'koSyncClippings')?.value || 0) === 1,
     btoa: (s) => Buffer.from(s).toString('base64'),
     API: 'https://my.ybx.app',
     api: { relay: async (...args) => {
@@ -209,8 +212,13 @@ function syncScenario({
       }
       return { status: authStatus };
     } },
+    mode: stored.koServerUrl.includes('/api/v1/crosspoint/kosync') ? 'plugin' : 'other',
     syncButton: { disabled: false },
+    document: { createElement: () => ({ hidden: false, disabled: false, onclick: null }) },
+    SYNC_OFF: { koServerUrl: '', koUsername: '', koPassword: '', koSyncClippings: 0 },
     syncValue: { textContent: '' },
+    clipValue: { textContent: '' },
+    clippingButton: { textContent: '' },
     restoreButton: { hidden: true },
     KOSYNC_PREVIOUS: '/.crosspoint/plugins/ybx/kosync-previous.json',
     writeJson: async (path, value) => { saved.push([path, value]); },
@@ -232,7 +240,7 @@ function syncScenario({
     message: (...x) => messages.push(x),
   });
   vm.runInContext(syncUrlHelpers, context);
-  vm.runInContext(sync, context);
+  vm.runInContext(sync + '\n;globalThis.disableSyncButton = disableSyncButton;', context);
   return { context, writes, messages, confirmations, stored, authCalls, saved };
 }
 
@@ -254,7 +262,46 @@ test('rotation mints the narrow key over TLS and validates it on the sync host',
   assert.equal(verify[2].Authorization,
     'Basic ' + Buffer.from('ybx:kosync_test').toString('base64'));
   assert.equal(host.context.syncButton.disabled, false);
-  assert.match(host.messages.at(-1)[0], /сервер принимает ключ/);
+  assert.match(host.messages.at(-1)[0], /Ключ обновлён/);
+});
+
+test('the ordinary KOSync button cannot downgrade quote-enabled HTTPS credentials to HTTP', async () => {
+  const host = syncScenario({ server: 'https://my.ybx.app/api/v1/crosspoint/kosync', quoteSync: true });
+  await host.context.syncButton.onclick();
+  assert.deepEqual(host.writes, []);
+  assert.equal(host.authCalls.length, 0);
+  assert.match(host.messages.at(-1)[0], /цитат включена/);
+  assert.equal(host.messages.at(-1)[1], 'err');
+});
+
+test('KOSync disable keeps metadata and disables quotes only after confirmation', async () => {
+  const host = syncScenario({ server: 'https://my.ybx.app/api/v1/crosspoint/kosync', quoteSync: true });
+  host.stored.libraryUseMetadata = 1;
+  host.stored.koSendMetadata = 1;
+  await host.context.disableSyncButton.onclick();
+  assert.deepEqual(JSON.parse(JSON.stringify(host.writes)), [{
+    koServerUrl: '', koUsername: '', koPassword: '', koSyncClippings: 0,
+  }]);
+  assert.equal(host.stored.libraryUseMetadata, 1);
+  assert.equal(host.stored.koSendMetadata, 1);
+  assert.equal(host.stored.koSyncClippings, 0);
+  assert.match(host.messages.at(-1)[0], /отключён/);
+});
+
+test('KOSync disable cancellation leaves credentials and clipping state alone', async () => {
+  const host = syncScenario({ server: 'https://my.ybx.app/api/v1/crosspoint/kosync',
+    quoteSync: true, confirm: false });
+  await host.context.disableSyncButton.onclick();
+  assert.equal(host.writes.length, 0);
+  assert.equal(host.stored.koSyncClippings, 1);
+  assert.match(host.messages.at(-1)[0], /отменено/);
+});
+
+test('KOSync disable refuses to clear another server', async () => {
+  const host = syncScenario({ server: 'https://other.example/kosync' });
+  await host.context.disableSyncButton.onclick();
+  assert.equal(host.writes.length, 0);
+  assert.match(host.messages.at(-1)[0], /другого сервера/);
 });
 
 test('a refused key mint writes nothing', async () => {
@@ -342,7 +389,7 @@ test('account migration requires consent and writes coherent plugin credentials'
   const host = syncScenario({ server: 'http://opds.ybx.app/kosync' });
   await host.context.syncButton.onclick();
   assert.deepEqual(host.writes.map((item) => Object.keys(item))[0],
-    ['koServerUrl', 'koUsername', 'koPassword', 'koMatchMethod', 'koSyncBehavior', 'koSendMetadata']);
+    ['koServerUrl', 'koUsername', 'koPassword', 'koMatchMethod', 'koSyncBehavior']);
   assert.equal(host.stored.koServerUrl, 'http://sync.ybx.app/api/v1/crosspoint/kosync');
   assert.equal(host.stored.koUsername, 'ybx');
   assert.equal(host.stored.koPassword, 'kosync_test');
@@ -397,7 +444,7 @@ function logoutScenario({
     API: 'https://my.ybx.app',
     TOKEN_PATH: '/.crosspoint/plugins/ybx/token.json',
     LEGACY_TOKEN_PATH: '/.crosspoint/plugin-data/ybx/token.json',
-    SYNC_OFF: { koServerUrl: '', koUsername: '', koPassword: '' },
+    SYNC_OFF: { koServerUrl: '', koUsername: '', koPassword: '', koSyncClippings: 0 },
     signOutButton: { disabled: false }, Error,
     api: { relay: async (...args) => {
       calls.push(args);
@@ -663,7 +710,7 @@ test('the old-card button shows only with the switch off and asks first', async 
   const screen = await sleepSettings({ mode: 3, legacy: true });
   await screen.context.legacyButton.onclick();
   assert.deepEqual(screen.calls, [['legacy']]);
-  assert.match(screen.messages.at(-1)[1], /sleep-legacy\.bmp/);
+  assert.match(screen.messages.at(-1)[1], /резервная копия/);
   assert.equal(screen.context.legacyButton.hidden, true);
 });
 

@@ -52,7 +52,7 @@ test('authorization failure propagates as 401, never falls back to device',async
 });
 test('CORS/network rejection is actionable and never leaks bearer to device',async()=>{
  const h=browser({error:Error('Failed to fetch')});
- await assert.rejects(h.run(),e=>e.network===true && /HTTPS/.test(e.message));
+ await assert.rejects(h.run(),e=>e.network===true && /интернет/i.test(e.message));
  assert.equal(h.calls.length,1);
 });
 test('unrelated device requests retain normal relay behavior',async()=>{

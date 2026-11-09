@@ -13,6 +13,67 @@ CrossPoint.registerPlugin(async (container, api) => {
   const TOKEN_PATH = DIR + '/token.json';
   const LEGACY_TOKEN_PATH = '/.crosspoint/plugin-data/ybx/token.json';
   const API = 'https://my.ybx.app';
+  // Transport preferences are separate: phone HTTPS and reader TLS can have
+  // different reachability. Only connection failures switch hosts; HTTP replies
+  // (including 401/429/5xx) and response-body errors stay on the chosen host.
+  const mirrorRequest = (() => {
+    const pairs = { 'my.ybx.app': 'emy.ybx.app',
+      'opds.ybx.app': 'eopds.ybx.app', 'sync.ybx.app': 'esync.ybx.app' };
+    const preferences = new Map();
+    const retryAfter = 5 * 60 * 1000;
+    return async (transport, address, send) => {
+      const url = new URL(address);
+      const main = Object.keys(pairs).find((host) =>
+        url.hostname === host || url.hostname === pairs[host]);
+      if (!main || url.username || url.password || url.port ||
+          !['http:', 'https:'].includes(url.protocol)) return send(address);
+      const key = transport + ':' + url.protocol + '//' + main;
+      const now = Date.now();
+      const previous = preferences.get(key);
+      const first = previous && previous.host === pairs[main] && now < previous.retryAt
+        ? pairs[main] : main;
+      const attempt = async (host) => {
+        const target = new URL(url.href);
+        target.hostname = host;
+        const result = await send(target.href);
+        // Firmware reports connection failures as status 0 / missing status.
+        // A real HTTP status takes precedence over its optional error message.
+        if (!result || (result.status != null && Number(result.status) <= 0)
+            || (result.status == null && result.error === 'transport failure')) {
+          const error = new Error(result && result.error || 'YBX: нет ответа');
+          error.network = true;
+          throw error;
+        }
+        return result;
+      };
+      try {
+        const result = await attempt(first);
+        preferences.set(key, { host: first,
+          retryAt: first === main ? 0 : (previous?.retryAt > now ? previous.retryAt : now + retryAfter) });
+        return result;
+      } catch (error) {
+        if (Number(error.status) >= 100 ||
+            !(error.network === true || error.name === 'TypeError')) throw error;
+        const second = first === main ? pairs[main] : main;
+        // Also throttle main probes when both hosts are unavailable.
+        preferences.set(key, { host: pairs[main], retryAt: now + retryAfter });
+        const result = await attempt(second);
+        preferences.set(key, { host: second, retryAt: second === main ? 0 : now + retryAfter });
+        return result;
+      }
+    };
+  })();
+  // Wrap only the remote transports; SD-file and reader-local fetches bypass it.
+  const deviceApi = api;
+  api = Object.create(deviceApi);
+  if (typeof deviceApi.relay === 'function') {
+    api.relay = (method, url, headers, body) => mirrorRequest('reader', url,
+      (target) => deviceApi.relay(method, target, headers, body));
+  }
+  if (typeof deviceApi.fetchToSd === 'function') {
+    api.fetchToSd = (url, path, headers) => mirrorRequest('reader', url,
+      (target) => deviceApi.fetchToSd(target, path, headers));
+  }
   const UPDATE_URL = 'https://ybx.app/crosspoint-plugin/latest.json';
   // Xteink's built-in KOSync client is the flakiest part of the TLS stack, so the
   // sync host answers over plain HTTP — for the narrow kosync_ key only, which
@@ -245,18 +306,18 @@ CrossPoint.registerPlugin(async (container, api) => {
     try {
       const url = new URL(address);
       if (url.username || url.password || url.search || url.hash || url.port) return 'other';
-      if (!['my.ybx.app', 'ybx.app', 'opds.ybx.app', 'sync.ybx.app'].includes(url.hostname)) {
+      if (!['my.ybx.app', 'emy.ybx.app', 'ybx.app', 'opds.ybx.app', 'eopds.ybx.app', 'sync.ybx.app', 'esync.ybx.app'].includes(url.hostname)) {
         return 'other';
       }
       const path = url.pathname.replace(/\/+$/, '') || '/';
       if (path === '/api/v1/crosspoint/kosync'
           && (url.protocol === 'https:'
-              || (url.hostname === 'sync.ybx.app' && url.protocol === 'http:'))) {
+              || (['sync.ybx.app', 'esync.ybx.app'].includes(url.hostname) && url.protocol === 'http:'))) {
         return 'plugin';
       }
       // Caddy serves both schemes on OPDS/sync; primary/cabinet hosts
       // redirect HTTP, which old readers may not follow.
-      const legacyHost = ['opds.ybx.app', 'sync.ybx.app'].includes(url.hostname);
+      const legacyHost = ['opds.ybx.app', 'eopds.ybx.app', 'sync.ybx.app', 'esync.ybx.app'].includes(url.hostname);
       if (path === '/kosync' &&
           (url.protocol === 'https:' || (legacyHost && url.protocol === 'http:'))) {
         return 'account';
@@ -444,10 +505,10 @@ CrossPoint.registerPlugin(async (container, api) => {
     if (profilePath) {
       let response;
       try {
-        response = await fetch(API + path, {
+        response = await mirrorRequest('browser', API + path, (target) => fetch(target, {
           method: 'GET', headers, mode: 'cors', cache: 'no-store',
           credentials: 'omit',
-        });
+        }));
       } catch (cause) {
         const error = new Error('не удалось подключиться к YBX, проверьте интернет на телефоне');
         error.network = true;

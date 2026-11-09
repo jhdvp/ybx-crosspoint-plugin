@@ -103,6 +103,17 @@ test('external hosts and credential-bearing URLs are never rewritten', async () 
   }
 });
 
+test('relative and unparseable addresses bypass the wrapper and reach send unchanged', async () => {
+  for (const address of ['/api/v1/crosspoint/kosync', 'my.ybx.app/api', '//my.ybx.app/api',
+    'http://', '', null, undefined, 42, {}]) {
+    let calls = 0;
+    await harness().request('reader', address, async (target) => {
+      calls++; assert.equal(target, address); return { status: 200 };
+    });
+    assert.equal(calls, 1);
+  }
+});
+
 test('failed periodic main probe returns to mirror for another five minutes', async () => {
   const h = harness(), calls = [];
   const send = async (url) => {

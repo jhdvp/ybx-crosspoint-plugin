@@ -22,7 +22,14 @@ CrossPoint.registerPlugin(async (container, api) => {
     const preferences = new Map();
     const retryAfter = 5 * 60 * 1000;
     return async (transport, address, send) => {
-      const url = new URL(address);
+      let url;
+      try {
+        url = new URL(address);
+      } catch {
+        // A relative or malformed address cannot name a YBX host: pass it to
+        // the device API unchanged, as it was before the wrapper existed.
+        return send(address);
+      }
       const main = Object.keys(pairs).find((host) =>
         url.hostname === host || url.hostname === pairs[host]);
       if (!main || url.username || url.password || url.port ||

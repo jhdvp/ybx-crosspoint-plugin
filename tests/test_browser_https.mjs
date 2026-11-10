@@ -7,12 +7,13 @@ const source=readFileSync('ybx.crosspoint-plugin/plugin.js','utf8');
 const start=source.indexOf('  const relay = async (path, auth) => {');
 const end=source.indexOf('  const number =',start);
 assert.ok(start>0 && end>start);
-const code=source.slice(start,end)+'\nglobalThis.getProfile = relay;';
+const fallback=source.slice(source.indexOf('  const mirrorRequest ='),source.indexOf('  // Wrap only the remote transports'));
+const code=fallback+source.slice(start,end)+'\nglobalThis.getProfile = relay;';
 
 function browser({status=200, data={hello:'ybx'}, error=null}={}) {
  const calls=[];
  const context=vm.createContext({
-  API:'https://my.ybx.app',JSON,Error,
+  API:'https://my.ybx.app',JSON,Error,URL,Map,Date,
   fetch:async(url,options)=>{
    calls.push({kind:'browser',url,options});
    if(error) throw error;
@@ -51,13 +52,14 @@ test('authorization failure propagates as 401, never falls back to device',async
  assert.equal(h.calls.length,1);
 });
 test('CORS/network rejection is actionable and never leaks bearer to device',async()=>{
- const h=browser({error:Error('Failed to fetch')});
+ const h=browser({error:new TypeError('Failed to fetch')});
  await assert.rejects(h.run(),e=>e.network===true && /интернет/i.test(e.message));
- assert.equal(h.calls.length,1);
+ assert.equal(h.calls.length,2);
+ assert.ok(h.calls[1].url.startsWith('https://emy.ybx.app/'));
 });
 test('unrelated device requests retain normal relay behavior',async()=>{
  const context=vm.createContext({
-  API:'https://my.ybx.app',JSON,Error,
+  API:'https://my.ybx.app',JSON,Error,URL,Map,Date,
   fetch:async()=>{throw Error('wrong')},
   api:{relay:async()=>({status:200,body:'{"other":true}'})},
  });

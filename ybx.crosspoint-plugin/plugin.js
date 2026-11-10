@@ -21,7 +21,11 @@ CrossPoint.registerPlugin(async (container, api) => {
       'opds.ybx.app': 'eopds.ybx.app', 'sync.ybx.app': 'esync.ybx.app' };
     const preferences = new Map();
     const retryAfter = 5 * 60 * 1000;
-    return async (transport, address, send) => {
+    // Ручной выбор («Сервер: Авто / Основной / Европа») отключает зондирование:
+    // Основной и Европа обращаются ровно к одному серверу и никогда не пробуют
+    // второй — сбой соединения возвращается вызывающему, режим меняет человек.
+    let mode = 'auto';
+    const request = async (transport, address, send) => {
       let url;
       try {
         url = new URL(address);
@@ -53,6 +57,8 @@ CrossPoint.registerPlugin(async (container, api) => {
         }
         return result;
       };
+    // Ручной выбор исключает второй сервер: попытка ровно одна.
+    if (mode !== 'auto') return attempt(mode === 'eu' ? pairs[main] : main);
       try {
         const result = await attempt(first);
         preferences.set(key, { host: first,
@@ -69,6 +75,21 @@ CrossPoint.registerPlugin(async (container, api) => {
         return result;
       }
     };
+    // Страница применяет сохранённый на SD выбор после чтения файла: один
+    // сеттер для обоих транспортов, режим сознательно не зависит от транспорта.
+    request.choice = (next) => {
+      if (!['auto', 'main', 'eu'].includes(next)) return mode;
+      // Смена режима стирает память о последнем удачном хосте, чтобы Авто
+      // снова начинало с основного сервера.
+      mode = next;
+      preferences.clear();
+      return mode;
+    };
+    request.effectiveEurope = () => mode === 'eu'
+      || (mode === 'auto' && Array.from(preferences.values())
+        .some((entry) => entry && typeof entry.host === 'string'
+          && ['emy.ybx.app', 'eopds.ybx.app', 'esync.ybx.app'].includes(entry.host)));
+    return request;
   })();
   // Wrap only the remote transports; SD-file and reader-local fetches bypass it.
   const deviceApi = api;
@@ -304,6 +325,18 @@ CrossPoint.registerPlugin(async (container, api) => {
     if (!res.ok) throw new Error('settings HTTP ' + res.status);
   };
   const settingValue = (settings, key) => settings.find((item) => item.key === key)?.value;
+  // Ручной выбор сервера хранится на SD-карте так же, как предпочтение экрана
+  // сна: один JSON-файл плагина, перечитываемый страницей при каждом открытии.
+  // Режим не зависит от транспорта — он общий для запросов браузера и ридера,
+  // в отличие от запомненного адреса в ключах transport:host.
+  const SERVER_PREFERENCE = DIR + '/server-preference.json';
+  const SERVER_MODES = ['auto', 'main', 'eu'];
+  const SERVER_CHOICE_LABELS = [['auto', 'Авто'], ['main', 'Основной'], ['eu', 'Европа']];
+  const saveServerChoice = (mode) => writeJson(SERVER_PREFERENCE, { mode, schema: 1 });
+  const readServerChoice = async () => {
+    const pref = await readJson(SERVER_PREFERENCE);
+    return SERVER_MODES.includes(pref?.mode) ? pref.mode : 'auto';
+  };
   // These endpoints belong to the same service but NOT the same auth scheme:
   // account KOSync uses an account/device key; the plugin endpoint uses the cp_
   // token or, since 1.6.10, the narrow kosync_ key written by the plugin itself.
@@ -422,6 +455,9 @@ CrossPoint.registerPlugin(async (container, api) => {
   };
 
   let token = null;
+  // Выбор сервера перечитывается с SD-карты при каждом открытии страницы и
+  // применяется к зеркальной обёртке до первых сетевых запросов профиля.
+  let serverChoice = 'auto';
   // Второе нажатие «Выгрузить статистику» перезаписывает уже лежащий файл.
   let statsArmed = false;
   // Автопроверка релиза делается один раз за открытие страницы.
@@ -940,6 +976,57 @@ CrossPoint.registerPlugin(async (container, api) => {
       throw new Error('не удалось прочитать device.json ридера');
     }
     return device;
+  }
+  // ── Зеркало сервера в device.json ───────────────────────────────────────
+  // Прошивка читает каталог, поиск, книги, QR-вход, события и адрес экрана
+  // сна прямо из статического device.json. Выбор «Сервер» должен двигать и
+  // эти адреса, иначе читатель остаётся на основном сервере. Меняем только
+  // три известные пары хостов, сохраняя схему и остальные поля.
+  const DEVICE_HOST_PAIRS = [
+    ['my.ybx.app', 'emy.ybx.app'],
+    ['opds.ybx.app', 'eopds.ybx.app'],
+    ['sync.ybx.app', 'esync.ybx.app'],
+  ];
+  function rewriteDeviceHosts(device, europe) {
+    const toEurope = Boolean(europe);
+    let changed = false;
+    const walk = (value) => {
+      if (typeof value === 'string') {
+        let parsedUrl = null;
+        try { parsedUrl = new URL(value); } catch { parsedUrl = null; }
+        if (!parsedUrl || (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:')) return value;
+        const pair = DEVICE_HOST_PAIRS.find(([main, mirror]) =>
+          parsedUrl.hostname === main || parsedUrl.hostname === mirror);
+        if (!pair) return value;
+        const [main, mirror] = pair;
+        const target = toEurope ? mirror : main;
+        if (parsedUrl.hostname === target) return value;
+        const host = parsedUrl.hostname;
+        const index = value.indexOf(host);
+        if (index === -1) return value;
+        changed = true;
+        return value.slice(0, index) + target + value.slice(index + host.length);
+      }
+      if (Array.isArray(value)) {
+        for (let i = 0; i < value.length; i += 1) value[i] = walk(value[i]);
+        return value;
+      }
+      if (value && typeof value === 'object') {
+        for (const key of Object.keys(value)) value[key] = walk(value[key]);
+        return value;
+      }
+      return value;
+    };
+    if (device && typeof device === 'object') walk(device);
+    return changed;
+  }
+  // Writes only when an address actually moves: no flash wear on page open.
+  async function rewriteDeviceHostsOnDisk(europe) {
+    const device = await readSleepDevice();
+    if (!rewriteDeviceHosts(device, europe)) return false;
+    await api.writeFile(SLEEP_DEVICE, sleepBytes(new TextEncoder().encode(
+      JSON.stringify(device, null, 2) + '\n')));
+    return true;
   }
   const sleepHandlerOn = (device) => Boolean(device?.events?.['sleep.enter']?.download);
   async function saveSleepPreference(enabled) {
@@ -1973,7 +2060,7 @@ CrossPoint.registerPlugin(async (container, api) => {
 
     actions.append(sleepButton, sleepCardButton, legacyButton, statsButton, checkButton, updateButton, signOutButton);
     settings.appendChild(rows);
-    settings.append(kosyncGroup, metadataGroup, clippingGroup);
+    settings.append(buildServerSection(), kosyncGroup, metadataGroup, clippingGroup);
     settings.appendChild(statsHint);
     settings.appendChild(updateBanner);
     settings.appendChild(actions);
@@ -1986,11 +2073,80 @@ CrossPoint.registerPlugin(async (container, api) => {
     }
   }
 
+  // ── Сервер: Авто / Основной / Европа ─────────────────────────────────────
+  // Управление доступно и без привязки YBX: менять сервер нужно как раз тогда,
+  // когда основной недоступен. Выбор сохраняется в JSON на SD и применяется к
+  // зеркальной обёртке немедленно. Область действия — запросы плагина: каталог,
+  // поиск и книги прошивка берёт напрямую по статическим адресам device.json.
+  function buildServerSection() {
+    const group = document.createElement('div');
+    group.className = 'ybx-setting-group';
+    const title = document.createElement('h3');
+    title.textContent = 'Сервер';
+    const hint = document.createElement('p');
+    hint.className = 'ybx-hint';
+    hint.textContent = 'Авто — основной сервер, при его недоступности европейское зеркало. '
+      + 'Основной — только ybx.app. Европа — только зеркало (emy/eopds/esync). '
+      + 'Выбор охватывает запросы плагина; каталог и загрузка книг идут с ридера '
+      + 'переписывает адреса в device.json (каталог, поиск, книги, QR, события, экран сна); переоткройте плагин на ридере.';
+    const actions = document.createElement('div');
+    actions.className = 'ybx-actions';
+    const buttons = [];
+    const paintChoice = () => {
+      buttons.forEach((button) => {
+        const active = serverChoice === button.dataset.serverMode;
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+        button.classList.toggle('primary', active);
+      });
+    };
+    for (const [mode, label] of SERVER_CHOICE_LABELS) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      button.dataset.serverMode = mode;
+      button.setAttribute('aria-label', 'Сервер: ' + label);
+      button.onclick = async () => {
+        if (serverChoice === mode) return;
+        button.disabled = true;
+        try {
+          await saveServerChoice(mode);
+          serverChoice = mode;
+          mirrorRequest.choice(mode);
+          paintChoice();
+          let deviceNote = '';
+          try {
+            const europe = mode === 'eu' || mirrorRequest.effectiveEurope();
+            if (await rewriteDeviceHostsOnDisk(europe)) {
+              deviceNote = ' Адреса в device.json '
+                + (europe ? 'переключены на зеркало' : 'возвращены на основной сервер')
+                + '; переоткройте плагин на ридере, чтобы прошивка подхватила их.';
+            }
+          } catch (deviceError) {
+            deviceNote = ' Не удалось обновить device.json: ' + deviceError.message + '.';
+          }
+          message('Сервер: ' + label + '.' + deviceNote, 'ok');
+        } catch (error) {
+          message('Не удалось сохранить выбор сервера: ' + error.message, 'err');
+        } finally {
+          button.disabled = false;
+        }
+      };
+      buttons.push(button);
+      actions.appendChild(button);
+    }
+    paintChoice();
+    group.append(title, hint, actions);
+    return group;
+  }
+
   function renderSignedOut() {
     // Состояние «ещё раз, чтобы перезаписать» живёт до отвязки или перезагрузки.
     statsArmed = false;
     profile.replaceChildren();
     settingsWrap.replaceChildren();
+    // Выбор сервера нужен и без привязки: недоступный основной мешает
+    // именно первым шагам, поэтому управление не прячется за токеном.
+    settingsWrap.appendChild(buildServerSection());
     message('Ридер не привязан. Откройте Home → Plugins → YBX на ридере и войдите по QR-коду.');
     const hint = document.createElement('section');
     hint.className = 'ybx-section';
@@ -2003,7 +2159,12 @@ CrossPoint.registerPlugin(async (container, api) => {
   }
 
   async function refresh() {
+    serverChoice = await readServerChoice();
+    mirrorRequest.choice(serverChoice);
     await ensureDeviceConfig();
+    try {
+      await rewriteDeviceHostsOnDisk(serverChoice === 'eu' || mirrorRequest.effectiveEurope());
+    } catch (error) { /* device.json may be unavailable; do not block page */ }
     token = await readPluginToken();
     if (!token || !token.access_token) {
       renderSignedOut();

@@ -109,7 +109,14 @@ CrossPoint.registerPlugin(async (container, api) => {
   // recognized: readers configured by plugin 1.6.x keep reporting mode 'plugin'
   // until «Обновить ключ» moves them onto the sync host.
   const KOSYNC_URL = 'http://sync.ybx.app/api/v1/crosspoint/kosync';
-  const CLIPPINGS_KOSYNC_URL = 'https://my.ybx.app/api/v1/crosspoint/kosync';
+  // The server answers with the clippings base of the host that served the
+  // request: main normally, the EU mirror when the main one is unreachable.
+  // Both bases front the same clipping store, so both are trusted; no other
+  // address is. The reader's KOSync client bypasses the plugin's mirror
+  // wrapper, so the base the server named is the one that must be saved.
+  const CLIPPINGS_KOSYNC_URLS = ['https://my.ybx.app', 'https://emy.ybx.app']
+    .map((host) => host + '/api/v1/crosspoint/kosync');
+  const isClippingsUrl = (url) => CLIPPINGS_KOSYNC_URLS.includes(url);
   const KOSYNC_PREVIOUS = DIR + '/kosync-previous.json';
   // The cabinet and the installer page hand out the catalogue-hosted address
   // instead, and both routes answer for the same reader account.
@@ -923,7 +930,7 @@ CrossPoint.registerPlugin(async (container, api) => {
   const COVER_MODE = 3;        // CrossPointSettings::SLEEP_SCREEN_MODE::COVER
   const COVER_CUSTOM_MODE = 4; // ...::COVER_CUSTOM — the card when sleep is not from a book
   // Версию в адресах берём из device.json ридера: сборка 1.7.0 подставляет свою.
-  const handlerVersion = (device) => (String(device?.download?.url || '').match(/[?&]v=([^&]+)/) || [])[1] || '1.6.15';
+  const handlerVersion = (device) => (String(device?.download?.url || '').match(/[?&]v=([^&]+)/) || [])[1] || '1.6.16';
   const sleepDownloadHandler = (v) => ({
     url: API + '/api/v1/crosspoint/sleep-image?w={cfg.sleep_width}&h={cfg.sleep_height}&v=' + v,
     headers: { Authorization: 'Bearer {token}' },
@@ -1337,7 +1344,7 @@ CrossPoint.registerPlugin(async (container, api) => {
     revokeClipButton.type = 'button';
     revokeClipButton.textContent = 'Отозвать ключ цитат';
     revokeClipButton.hidden = clipsEnabled(current)
-      || settingValue(current, 'koServerUrl') !== CLIPPINGS_KOSYNC_URL;
+      || !isClippingsUrl(settingValue(current, 'koServerUrl'));
     revokeClipButton.disabled = !token;
     revokeClipButton.onclick = async () => {
       revokeClipButton.disabled = true;
@@ -1370,7 +1377,7 @@ CrossPoint.registerPlugin(async (container, api) => {
           clipValue.textContent = 'Выключена';
           clippingButton.textContent = 'Включить синхронизацию цитат';
           syncValue.textContent = 'YBX · KOSync (без цитат)';
-          if (settingValue(latest, 'koServerUrl') === CLIPPINGS_KOSYNC_URL) {
+          if (isClippingsUrl(settingValue(latest, 'koServerUrl'))) {
             revokeClipButton.hidden = false;
             try {
               await revokeClippingKey();
@@ -1406,12 +1413,12 @@ CrossPoint.registerPlugin(async (container, api) => {
         try { body = JSON.parse(issued.body || ''); } catch { /* fail closed */ }
         const key = body?.kosync_key;
         if (typeof key !== 'string' || !/^kosync_[A-Za-z0-9_-]{43}$/.test(key)
-            || body.sync_url !== CLIPPINGS_KOSYNC_URL || body.clippings_enabled !== true) {
+            || !isClippingsUrl(body.sync_url) || body.clippings_enabled !== true) {
           throw new Error('сервер прислал неподходящий ключ или адрес цитат');
         }
         // Save only readable non-secret values; GET /api/settings masks passwords.
         // An existing KOSync backup is the user's earliest original server.
-        if (oldServer !== CLIPPINGS_KOSYNC_URL && !await readJson(KOSYNC_PREVIOUS)) {
+        if (!isClippingsUrl(oldServer) && !await readJson(KOSYNC_PREVIOUS)) {
           await writeJson(KOSYNC_PREVIOUS, {
             koServerUrl: oldServer, koUsername: oldUser,
             koMatchMethod: settingValue(latest, 'koMatchMethod'),
@@ -1423,7 +1430,7 @@ CrossPoint.registerPlugin(async (container, api) => {
         }
         attemptedEnable = true;
         await writeSettings({
-          koServerUrl: CLIPPINGS_KOSYNC_URL,
+          koServerUrl: body.sync_url,
           koUsername: 'ybx', koPassword: key,
           // YBX maps books by the binary hash of the EPUB it served; with the
           // stock Filename default every clipping waits forever for a book.
@@ -1432,7 +1439,7 @@ CrossPoint.registerPlugin(async (container, api) => {
         });
         const saved = await readSettings({ required: true });
         for (const [name, expected] of Object.entries({
-          koServerUrl: CLIPPINGS_KOSYNC_URL, koUsername: 'ybx',
+          koServerUrl: body.sync_url, koUsername: 'ybx',
           koMatchMethod: 1, koSyncClippings: 1,
         })) {
           const got = settingValue(saved, name);

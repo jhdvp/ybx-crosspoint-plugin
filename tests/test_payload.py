@@ -12,9 +12,9 @@ class PayloadContractTests(unittest.TestCase):
         self.assertEqual(validate(PAYLOAD), [])
 
     def test_stock_1614_static_merged_library_and_search(self):
-        payload = json.loads((PAYLOAD / "device.json").read_text())
-        manifest = json.loads((PAYLOAD / "manifest.json").read_text())
-        self.assertEqual(manifest["version"], "1.6.15")
+        payload = json.loads((PAYLOAD / "device.json").read_text(encoding="utf-8"))
+        manifest = json.loads((PAYLOAD / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["version"], "1.6.16")
         browse = payload["browse"]
         self.assertEqual(browse["format"], "json")
         self.assertEqual(browse["page_size"], 10)
@@ -39,7 +39,7 @@ class PayloadContractTests(unittest.TestCase):
         for entry in browse["lists"]:
             self.assertNotIn("parent", entry)
             self.assertNotIn("id", entry)
-            self.assertIn("v=1.6.15", entry["url"])
+            self.assertIn("v=1.6.16", entry["url"])
         self.assertEqual(payload["token"]["file"], "token.json")
         self.assertEqual(payload["download"]["dest_dir"], "/books/ybx")
         self.assertIn("Bearer {token}", payload["download"]["headers"]["Authorization"])
@@ -58,7 +58,7 @@ class PayloadContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             replica = Path(tmp) / "plugin"
             shutil.copytree(PAYLOAD, replica)
-            manifest = json.loads((replica / "manifest.json").read_text())
+            manifest = json.loads((replica / "manifest.json").read_text(encoding="utf-8"))
             manifest["files"].append("token.json")
             (replica / "manifest.json").write_text(json.dumps(manifest))
             self.assertTrue(any("unsafe/private file name" in err for err in validate(replica)))
@@ -68,7 +68,7 @@ class PayloadContractTests(unittest.TestCase):
             replica = Path(tmp) / "plugin"
             shutil.copytree(PAYLOAD, replica)
             manifest_path = replica / "manifest.json"
-            manifest = json.loads(manifest_path.read_text())
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             manifest["compatibility"]["requires"] = ["catalog.lists.auth"]
             manifest_path.write_text(json.dumps(manifest))
             self.assertTrue(any("fork-only" in err for err in validate(replica)))
@@ -79,7 +79,7 @@ class PayloadContractTests(unittest.TestCase):
                 replica = Path(tmp) / "plugin"
                 shutil.copytree(PAYLOAD, replica)
                 target = replica / metadata_file
-                data = json.loads(target.read_text())
+                data = json.loads(target.read_text(encoding="utf-8"))
                 data.setdefault("compatibility", {})["requires"] = ["catalog.folders.json"]
                 target.write_text(json.dumps(data))
                 self.assertTrue(any("fork-only" in e for e in validate(replica)))
@@ -88,7 +88,7 @@ class PayloadContractTests(unittest.TestCase):
                 replica = Path(tmp) / "plugin"
                 shutil.copytree(PAYLOAD, replica)
                 target = replica / "device.json"
-                data = json.loads(target.read_text())
+                data = json.loads(target.read_text(encoding="utf-8"))
                 if field == "lists_url":
                     data["browse"][field] = "https://my.ybx.app/api/v1/crosspoint/catalog/lists"
                 else:
@@ -101,7 +101,7 @@ class PayloadContractTests(unittest.TestCase):
             replica = Path(tmp) / "plugin"
             shutil.copytree(PAYLOAD, replica)
             path = replica / "plugin.json"
-            doc = json.loads(path.read_text())
+            doc = json.loads(path.read_text(encoding="utf-8"))
             doc["capabilities"].append("catalog.folders.json")
             path.write_text(json.dumps(doc))
             self.assertTrue(any("plugin.json.capabilities" in err
@@ -113,12 +113,12 @@ class PayloadContractTests(unittest.TestCase):
             replica = Path(tmp) / "plugin"
             shutil.copytree(PAYLOAD, replica)
             target = replica / "device.json"
-            device = json.loads(target.read_text())
+            device = json.loads(target.read_text(encoding="utf-8"))
             original = device["download"]["url"]
             for forged in (
                 "{url}",  # an arbitrary row URL could exfiltrate Bearer
-                "https://attacker.example/books/{id}/download?v=1.6.15",
-                "http://my.ybx.app/api/v1/crosspoint/books/{id}/download?v=1.6.15",
+                "https://attacker.example/books/{id}/download?v=1.6.16",
+                "http://my.ybx.app/api/v1/crosspoint/books/{id}/download?v=1.6.16",
             ):
                 device["download"]["url"] = forged
                 target.write_text(json.dumps(device))
@@ -139,7 +139,7 @@ class PayloadContractTests(unittest.TestCase):
             replica = Path(tmp) / "plugin"
             shutil.copytree(PAYLOAD, replica)
             device_path = replica / "device.json"
-            device = json.loads(device_path.read_text())
+            device = json.loads(device_path.read_text(encoding="utf-8"))
             device["events"]["reader.session"]["request"]["url"] = (
                 "https://my.ybx.app/api/v1/crosspoint/events"
             )
@@ -151,7 +151,7 @@ class PayloadContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             replica = Path(tmp) / "plugin"
             shutil.copytree(PAYLOAD, replica)
-            manifest = json.loads((replica / "manifest.json").read_text())
+            manifest = json.loads((replica / "manifest.json").read_text(encoding="utf-8"))
             manifest["version"] = "9.9.9"
             (replica / "manifest.json").write_text(json.dumps(manifest))
             self.assertIn("plugin.json disagrees with manifest id, version or files", validate(replica))

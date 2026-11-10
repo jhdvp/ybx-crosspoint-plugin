@@ -17,8 +17,8 @@ function requestUrl(template, page = 1) {
     .replaceAll('{query}', encodeURIComponent('test')));
 }
 
-test('Stock 1.6.15 exposes all eight exact top-level shelves without Native lists_url', () => {
-  assert.equal(manifest.version, '1.6.15');
+test('Stock 1.6.16 exposes all eight exact top-level shelves without Native lists_url', () => {
+  assert.equal(manifest.version, '1.6.16');
   assert.equal(manifest.mount, 'settings');
   assert.deepEqual(manifest.compatibility.firmware_family, ['crosspoint']);
   assert.equal(manifest.compatibility.plugin_api_min, 1);
@@ -44,7 +44,7 @@ test('Every Stock section paginates with the firmware lookahead, not Native fold
     // The API then advances by pageSize, keeping the extra row as a lookahead.
     assert.equal(first.searchParams.get('limit'), '11', list.title);
     assert.equal(second.searchParams.get('limit'), '11', list.title);
-    assert.equal(first.searchParams.get('v'), '1.6.15', list.title);
+    assert.equal(first.searchParams.get('v'), '1.6.16', list.title);
     assert.equal(list.folder_url, undefined, list.title);
   }
   assert.equal(browse.fields.title, 'title');

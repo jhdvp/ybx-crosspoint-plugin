@@ -7,8 +7,15 @@ const js = readFileSync('ybx.crosspoint-plugin/plugin.js', 'utf8');
 const first = js.indexOf('    const revokeClippingKey = async () => {');
 const last = js.indexOf('    const syncButton = document.createElement', first);
 assert.ok(first > 0 && last > first, 'read actual button handler');
-const realHandler = js.slice(first, last) + '\nglobalThis.clippingButton = clippingButton; globalThis.revokeClipButton = revokeClipButton;';
+// Run the production trust helper too: the test must not re-implement it.
+const constStart = js.indexOf('  const CLIPPINGS_KOSYNC_URLS');
+const constEnd = js.indexOf('  const KOSYNC_PREVIOUS', constStart);
+assert.ok(constStart > 0 && constEnd > constStart, 'read actual clippings constants');
+const realConstants = js.slice(constStart, constEnd);
+const realHandler = realConstants + js.slice(first, last)
+  + '\nglobalThis.clippingButton = clippingButton; globalThis.revokeClipButton = revokeClipButton;';
 const BASE = 'https://my.ybx.app/api/v1/crosspoint/kosync';
+const EU_BASE = 'https://emy.ybx.app/api/v1/crosspoint/kosync';
 const KEY = 'kosync_' + 'a'.repeat(43);
 
 function scenario({ enabled = false, consent = true, relayStatus = 200,
@@ -25,7 +32,7 @@ function scenario({ enabled = false, consent = true, relayStatus = 200,
     document: { createElement: () => ({ type: '', className: '', disabled: false,
       textContent: '', onclick: null }) },
     token, Date, JSON, String, Number, Error, Object,
-    API: 'https://my.ybx.app', CLIPPINGS_KOSYNC_URL: BASE,
+    API: 'https://my.ybx.app',
     KOSYNC_PREVIOUS: '/private/previous.json',
     current: Object.entries(values).map(([key, value]) => ({ key, value })),
     clipsEnabled: (arr) => Number(arr.find(x => x.key === 'koSyncClippings')?.value || 0) === 1,
@@ -47,7 +54,7 @@ function scenario({ enabled = false, consent = true, relayStatus = 200,
     } : null },
     verifyPluginSync: async (key) => {
       assert.equal(key, KEY);
-      assert.equal(values.koServerUrl, BASE);
+      assert.equal(values.koServerUrl, response.sync_url);
       calls.push(['GET', 'verified HTTPS progress auth']);
     },
     syncButton: { textContent: '' }, syncValue: { textContent: '' },
@@ -85,6 +92,40 @@ test('quote activation sets KoSync credentials, binary book matching and the cli
   assert.equal(t.messages.at(-1)[1], 'ok');
   assert.match(t.button.textContent, /^Выключить/);
   assert.equal(t.button.disabled, false);
+});
+
+test('EU mirror clippings base is accepted and saved exactly as the server issued it', async () => {
+  const t = scenario({
+    response: { kosync_key: KEY, sync_url: EU_BASE, clippings_enabled: true },
+  });
+  await t.click();
+  assert.equal(t.values.koServerUrl, EU_BASE);
+  assert.equal(t.values.koPassword, KEY);
+  assert.equal(t.values.koUsername, 'ybx');
+  assert.deepEqual(JSON.parse(JSON.stringify(t.writes[0])), {
+    koServerUrl: EU_BASE, koUsername: 'ybx', koPassword: KEY, koMatchMethod: 1, koSyncClippings: 1,
+  });
+  assert.equal(t.messages.at(-1)[1], 'ok');
+  assert.match(t.button.textContent, /^Выключить/);
+});
+
+test('disabling quotes after EU-mirror setup still revokes the server key', async () => {
+  const t = scenario({ enabled: true, oldServer: EU_BASE });
+  await t.click();
+  assert.deepEqual(t.writes, [{ koSyncClippings: 0 }]);
+  assert.equal(t.calls.length, 1);
+  assert.ok(t.calls[0][1].endsWith('/auth/clippings-key/revoke'));
+  assert.equal(t.context.revokeClipButton.hidden, true);
+  assert.match(t.button.textContent, /^Включить/);
+});
+
+test('an EU-mirror clippings URL does not overwrite an existing KOSync backup', async () => {
+  const t = scenario({
+    oldServer: EU_BASE, existingBackup: { koServerUrl: 'https://original.example/kosync' },
+  });
+  await t.click();
+  assert.equal(t.backups.length, 0);
+  assert.equal(t.values.koSyncClippings, 1);
 });
 
 test('disabling quotes changes only one flag, leaves progress and metadata intact', async () => {
@@ -154,6 +195,8 @@ test('invalid token or unsafe quote endpoint fails closed', async () => {
     { kosync_key: 'cp_wrong', sync_url: BASE, clippings_enabled: true },
     { kosync_key: KEY, sync_url: 'http://sync.ybx.app/api/v1/crosspoint/kosync', clippings_enabled: true },
     { kosync_key: KEY, sync_url: BASE + '/untrusted', clippings_enabled: true },
+    { kosync_key: KEY, sync_url: 'https://my.ybx.app.evil.example/api/v1/crosspoint/kosync', clippings_enabled: true },
+    { kosync_key: KEY, sync_url: 'https://evil.example/api/v1/crosspoint/kosync', clippings_enabled: true },
     { kosync_key: KEY, sync_url: BASE, clippings_enabled: false },
   ]) {
     const t = scenario({ response });

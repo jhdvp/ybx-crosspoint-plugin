@@ -85,6 +85,10 @@ CrossPoint.registerPlugin(async (container, api) => {
       preferences.clear();
       return mode;
     };
+    request.effectiveEurope = () => mode === 'eu'
+      || (mode === 'auto' && Array.from(preferences.values())
+        .some((entry) => entry && typeof entry.host === 'string'
+          && ['emy.ybx.app', 'eopds.ybx.app', 'esync.ybx.app'].includes(entry.host)));
     return request;
   })();
   // Wrap only the remote transports; SD-file and reader-local fetches bypass it.
@@ -972,6 +976,57 @@ CrossPoint.registerPlugin(async (container, api) => {
       throw new Error('не удалось прочитать device.json ридера');
     }
     return device;
+  }
+  // ── Зеркало сервера в device.json ───────────────────────────────────────
+  // Прошивка читает каталог, поиск, книги, QR-вход, события и адрес экрана
+  // сна прямо из статического device.json. Выбор «Сервер» должен двигать и
+  // эти адреса, иначе читатель остаётся на основном сервере. Меняем только
+  // три известные пары хостов, сохраняя схему и остальные поля.
+  const DEVICE_HOST_PAIRS = [
+    ['my.ybx.app', 'emy.ybx.app'],
+    ['opds.ybx.app', 'eopds.ybx.app'],
+    ['sync.ybx.app', 'esync.ybx.app'],
+  ];
+  function rewriteDeviceHosts(device, europe) {
+    const toEurope = Boolean(europe);
+    let changed = false;
+    const walk = (value) => {
+      if (typeof value === 'string') {
+        let parsedUrl = null;
+        try { parsedUrl = new URL(value); } catch { parsedUrl = null; }
+        if (!parsedUrl || (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:')) return value;
+        const pair = DEVICE_HOST_PAIRS.find(([main, mirror]) =>
+          parsedUrl.hostname === main || parsedUrl.hostname === mirror);
+        if (!pair) return value;
+        const [main, mirror] = pair;
+        const target = toEurope ? mirror : main;
+        if (parsedUrl.hostname === target) return value;
+        const host = parsedUrl.hostname;
+        const index = value.indexOf(host);
+        if (index === -1) return value;
+        changed = true;
+        return value.slice(0, index) + target + value.slice(index + host.length);
+      }
+      if (Array.isArray(value)) {
+        for (let i = 0; i < value.length; i += 1) value[i] = walk(value[i]);
+        return value;
+      }
+      if (value && typeof value === 'object') {
+        for (const key of Object.keys(value)) value[key] = walk(value[key]);
+        return value;
+      }
+      return value;
+    };
+    if (device && typeof device === 'object') walk(device);
+    return changed;
+  }
+  // Writes only when an address actually moves: no flash wear on page open.
+  async function rewriteDeviceHostsOnDisk(europe) {
+    const device = await readSleepDevice();
+    if (!rewriteDeviceHosts(device, europe)) return false;
+    await api.writeFile(SLEEP_DEVICE, sleepBytes(new TextEncoder().encode(
+      JSON.stringify(device, null, 2) + '\n')));
+    return true;
   }
   const sleepHandlerOn = (device) => Boolean(device?.events?.['sleep.enter']?.download);
   async function saveSleepPreference(enabled) {
@@ -2033,7 +2088,7 @@ CrossPoint.registerPlugin(async (container, api) => {
     hint.textContent = 'Авто — основной сервер, при его недоступности европейское зеркало. '
       + 'Основной — только ybx.app. Европа — только зеркало (emy/eopds/esync). '
       + 'Выбор охватывает запросы плагина; каталог и загрузка книг идут с ридера '
-      + 'напрямую по адресам device.json.';
+      + 'переписывает адреса в device.json (каталог, поиск, книги, QR, события, экран сна); переоткройте плагин на ридере.';
     const actions = document.createElement('div');
     actions.className = 'ybx-actions';
     const buttons = [];
@@ -2058,7 +2113,18 @@ CrossPoint.registerPlugin(async (container, api) => {
           serverChoice = mode;
           mirrorRequest.choice(mode);
           paintChoice();
-          message('Сервер: ' + label + '.', 'ok');
+          let deviceNote = '';
+          try {
+            const europe = mode === 'eu' || mirrorRequest.effectiveEurope();
+            if (await rewriteDeviceHostsOnDisk(europe)) {
+              deviceNote = ' Адреса в device.json '
+                + (europe ? 'переключены на зеркало' : 'возвращены на основной сервер')
+                + '; переоткройте плагин на ридере, чтобы прошивка подхватила их.';
+            }
+          } catch (deviceError) {
+            deviceNote = ' Не удалось обновить device.json: ' + deviceError.message + '.';
+          }
+          message('Сервер: ' + label + '.' + deviceNote, 'ok');
         } catch (error) {
           message('Не удалось сохранить выбор сервера: ' + error.message, 'err');
         } finally {
@@ -2096,6 +2162,9 @@ CrossPoint.registerPlugin(async (container, api) => {
     serverChoice = await readServerChoice();
     mirrorRequest.choice(serverChoice);
     await ensureDeviceConfig();
+    try {
+      await rewriteDeviceHostsOnDisk(serverChoice === 'eu' || mirrorRequest.effectiveEurope());
+    } catch (error) { /* device.json may be unavailable; do not block page */ }
     token = await readPluginToken();
     if (!token || !token.access_token) {
       renderSignedOut();

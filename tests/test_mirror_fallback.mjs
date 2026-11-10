@@ -127,3 +127,110 @@ test('failed periodic main probe returns to mirror for another five minutes', as
   await h.request('browser', url, send);
   assert.deepEqual(calls, [url, 'https://emy.ybx.app/api', 'https://emy.ybx.app/api']);
 });
+
+test('Основной pins all three pairs to main hosts and never touches the mirror', async () => {
+  for (const [main, mirror] of [['my', 'emy'], ['opds', 'eopds'], ['sync', 'esync']]) {
+    for (const scheme of ['http', 'https']) {
+      const url = `${scheme}://${main}.ybx.app/kosync?x=a%2Fb`;
+      // A reachable main host is the only target, scheme and query preserved.
+      const ok = harness(), hits = [];
+      ok.request.choice('main');
+      assert.deepEqual(
+        await ok.request('reader', url, async (target) => { hits.push(target); return { status: 200 }; }),
+        { status: 200 });
+      assert.notEqual(url, url.replace(`//${main}.`, `//${mirror}.`));
+      assert.deepEqual(hits, [url]);
+      // A connection failure stays on the chosen host: no mirror probing.
+      const down = harness(), attempted = [];
+      down.request.choice('main');
+      await assert.rejects(down.request('reader', url, async (target) => {
+        attempted.push(target); return { status: 0 };
+      }));
+      assert.deepEqual(attempted, [url]);
+      // Even an HTTP reply with a transport-failure error must not fall back:
+      // only the mode itself decides whether the mirror is ever contacted.
+      const httpError = harness(), third = [];
+      httpError.request.choice('main');
+      assert.deepEqual(
+        await httpError.request('browser', url, async (target) => {
+          third.push(target); return { status: 503, error: 'transport failure' };
+        }),
+        { status: 503, error: 'transport failure' });
+      assert.deepEqual(third, [url]);
+    }
+  }
+});
+
+test('Европа pins all three pairs to mirror hosts without probing main', async () => {
+  for (const [main, mirror] of [['my', 'emy'], ['opds', 'eopds'], ['sync', 'esync']]) {
+    for (const scheme of ['http', 'https']) {
+      const h = harness(), calls = [];
+      h.request.choice('eu');
+      const url = `${scheme}://${main}.ybx.app/kosync?x=a%2Fb`;
+      const expected = `${scheme}://${mirror}.ybx.app/kosync?x=a%2Fb`;
+      assert.deepEqual(
+        await h.request('reader', url, async (target) => {
+          calls.push(target);
+          return { status: target === expected ? 200 : 0 };
+        }),
+        { status: 200 });
+      assert.deepEqual(calls, [expected]);
+    }
+  }
+  const down = harness(), attempts = [];
+  down.request.choice('eu');
+  await assert.rejects(down.request('browser', 'https://sync.ybx.app/api', async (target) => {
+    attempts.push(target); throw new TypeError('Failed to fetch');
+  }));
+  assert.deepEqual(attempts, ['https://esync.ybx.app/api']);
+});
+
+test('the default is Авто, unknown values are ignored and switching clears remembered hosts', async () => {
+  const h = harness(), calls = [];
+  const send = async (url) => {
+    calls.push(url);
+    return { status: url.includes('//my.') ? -1 : 200 };
+  };
+  assert.equal(h.request.choice(), 'auto');
+  assert.equal(h.request.choice('bogus'), 'auto');
+  assert.equal(h.request.choice('main'), 'main');
+  assert.equal(h.request.choice('eu'), 'eu');
+  assert.equal(h.request.choice('auto'), 'auto');
+  // Back on Авто the first attempt is the main host again even though Европа
+  // would have answered: a mode switch wipes the remembered last-good host.
+  const url = 'https://my.ybx.app/api';
+  await h.request('browser', url, send);
+  assert.deepEqual(calls, [url, 'https://emy.ybx.app/api']);
+});
+
+test('forced modes still pass through non-YBX, credential-bearing and unparseable addresses', async () => {
+  for (const mode of ['main', 'eu']) {
+    for (const url of ['https://other.example/api', 'https://user:pass@my.ybx.app/api',
+      'https://my.ybx.app:8443/api', '/api/v1/crosspoint/kosync']) {
+      let calls = 0;
+      const h = harness();
+      h.request.choice(mode);
+      await h.request('reader', url, async (target) => {
+        calls++; assert.equal(target, url); return { status: 200 };
+      });
+      assert.equal(calls, 1);
+    }
+  }
+});
+
+test('the page offers «Сервер»: Авто / Основной / Европа, persisted on the SD card', () => {
+  assert.match(source,
+    /const SERVER_PREFERENCE = DIR \+ '\/server-preference\.json';/);
+  assert.match(source, /const SERVER_MODES = \['auto', 'main', 'eu'\];/);
+  assert.match(source,
+    /\[\['auto', 'Авто'\], \['main', 'Основной'\], \['eu', 'Европа'\]\]/);
+  assert.match(source, /title\.textContent = 'Сервер';/);
+  // The control lives with the other setting groups and remains available
+  // signed out, because a blocked origin breaks the first steps of pairing.
+  assert.match(source,
+    /settings\.append\(buildServerSection\(\), kosyncGroup, metadataGroup, clippingGroup\)/);
+  assert.match(source, /settingsWrap\.appendChild\(buildServerSection\(\)\)/);
+  // The saved choice is applied to the mirror wrapper before any other request.
+  assert.match(source,
+    /serverChoice = await readServerChoice\(\);\s*\n\s*mirrorRequest\.choice\(serverChoice\);/);
+});

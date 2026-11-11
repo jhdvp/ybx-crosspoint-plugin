@@ -56,7 +56,7 @@ test('every HTTP response, SD error and unclassified exception bypasses fallback
   }
 });
 
-test('transport exceptions retry once, both-down rejects, browser and reader preferences differ', async () => {
+test('transport exceptions retry, all-down rejects, browser and reader preferences differ', async () => {
   const h = harness(), calls = [];
   const send = async (url) => {
     calls.push(url);
@@ -71,7 +71,7 @@ test('transport exceptions retry once, both-down rejects, browser and reader pre
   await assert.rejects(h.request('browser', 'https://my.ybx.app/api', async () => {
     count++; return { status: 0 };
   }));
-  assert.equal(count, 2);
+  assert.equal(count, 3);
 });
 
 test('relay and SD wrappers preserve method, authorization, body and destination', async () => {
@@ -204,7 +204,7 @@ test('the default is Авто, unknown values are ignored and switching clears r
 });
 
 test('forced modes still pass through non-YBX, credential-bearing and unparseable addresses', async () => {
-  for (const mode of ['main', 'eu']) {
+  for (const mode of ['main', 'eu', 'pt']) {
     for (const url of ['https://other.example/api', 'https://user:pass@my.ybx.app/api',
       'https://my.ybx.app:8443/api', '/api/v1/crosspoint/kosync']) {
       let calls = 0;
@@ -218,12 +218,12 @@ test('forced modes still pass through non-YBX, credential-bearing and unparseabl
   }
 });
 
-test('the page offers «Сервер»: Авто / Основной / Европа, persisted on the SD card', () => {
+test('the page offers «Сервер»: Авто / Основной / Европа / Португалия, persisted on the SD card', () => {
   assert.match(source,
     /const SERVER_PREFERENCE = DIR \+ '\/server-preference\.json';/);
-  assert.match(source, /const SERVER_MODES = \['auto', 'main', 'eu'\];/);
+  assert.match(source, /const SERVER_MODES = \['auto', 'main', 'eu', 'pt'\];/);
   assert.match(source,
-    /\[\['auto', 'Авто'\], \['main', 'Основной'\], \['eu', 'Европа'\]\]/);
+    /\[\['auto', 'Авто'\], \['main', 'Основной'\], \['eu', 'Европа'\], \['pt', 'Португалия'\]\]/);
   assert.match(source, /title\.textContent = 'Сервер';/);
   // The control lives with the other setting groups and remains available
   // signed out, because a blocked origin breaks the first steps of pairing.
@@ -233,4 +233,88 @@ test('the page offers «Сервер»: Авто / Основной / Европ
   // The saved choice is applied to the mirror wrapper before any other request.
   assert.match(source,
     /serverChoice = await readServerChoice\(\);\s*\n\s*mirrorRequest\.choice\(serverChoice\);/);
+});
+
+for (const [main, eu, pt] of [['my', 'emy', 'pmy'], ['opds', 'eopds', 'popds'], ['sync', 'esync', 'psync']]) {
+  test(`PT manual and automatic routing for ${main}`, async () => {
+    for (const scheme of ['http', 'https']) {
+      for (const origin of [main, eu, pt]) {
+        const h = harness(), calls = [];
+        h.request.choice('pt');
+        assert.equal(h.request.effectiveTarget(), 'pt');
+        const url = `${scheme}://${origin}.ybx.app/api?x=a%2Fb`;
+        await assert.rejects(h.request('reader', url, async (target) => {
+          calls.push(target); return { status: 0 };
+        }));
+        assert.deepEqual(calls, [`${scheme}://${pt}.ybx.app/api?x=a%2Fb`]);
+        calls.length = 0;
+        assert.equal((await h.request('browser', url, async (target) => {
+          calls.push(target); return { status: 503 };
+        })).status, 503);
+        assert.equal(calls.length, 1);
+      }
+      const h = harness(), calls = [];
+      const url = `${scheme}://${main}.ybx.app/api?x=a%2Fb`;
+      const send = async (target) => {
+        calls.push(target);
+        if (target.includes(`//${eu}.`)) throw new TypeError('Failed to fetch');
+        return { status: target.includes(`//${main}.`) ? 0 : 200 };
+      };
+      await h.request('reader', url, send);
+      assert.deepEqual(calls, [main, eu, pt].map(host => url.replace(`//${main}.`, `//${host}.`)));
+      assert.equal(h.request.effectiveTarget(), 'pt');
+      calls.length = 0;
+      await h.request('reader', url, send);
+      assert.deepEqual(calls, [url.replace(`//${main}.`, `//${pt}.`)]);
+      h.advance(); calls.length = 0;
+      await h.request('reader', url, send);
+      assert.equal(calls[0], url);
+      const http = harness(), replies = [];
+      await http.request('reader', url, async (target) => {
+        replies.push(target); return { status: target === url ? 0 : 503 };
+      });
+      assert.deepEqual(replies, [url, url.replace(`//${main}.`, `//${eu}.`)]);
+    }
+  });
+}
+
+test('device hosts round-trip between main, EU and PT without changing other bytes', () => {
+  const start = source.indexOf('  const DEVICE_HOST_PAIRS =');
+  const end = source.indexOf('  // Writes only when', start);
+  const ctx = vm.createContext({ URL });
+  vm.runInContext(source.slice(start, end) + '\nglobalThis.rewrite = rewriteDeviceHosts;', ctx);
+  const hosts = { main: ['my', 'opds', 'sync'], eu: ['emy', 'eopds', 'esync'], pt: ['pmy', 'popds', 'psync'] };
+  const original = { nested: { urls: hosts.main.map(host => `https://${host}.ybx.app:443/a%2Fb?x=1#z`) },
+    external: 'https://example.com/a', relative: '/my.ybx.app/a', value: 42 };
+  for (const from of Object.keys(hosts)) {
+    for (const to of Object.keys(hosts)) {
+      const device = JSON.parse(JSON.stringify(original));
+      ctx.rewrite(device, from);
+      assert.equal(ctx.rewrite(device, to), from !== to);
+      assert.deepEqual(device.nested.urls, hosts[to].map(host => `https://${host}.ybx.app:443/a%2Fb?x=1#z`));
+      assert.equal(ctx.rewrite(device, to), false);
+      ctx.rewrite(device, 'main');
+      assert.deepEqual(device, original);
+    }
+  }
+});
+
+test('saved PT choice and Portuguese KOSync hosts are recognized', async () => {
+  const start = source.indexOf('  const SERVER_PREFERENCE =');
+  const end = source.indexOf('  const pointsToYbx =', start);
+  const ctx = vm.createContext({ URL, DIR: '/plugin',
+    writeJson: async () => {}, readJson: async () => ({ mode: 'pt' }),
+    settingValue: (settings, key) => settings.find(item => item.key === key)?.value });
+  vm.runInContext(source.slice(start, end)
+    + '\nglobalThis.readChoice = readServerChoice; globalThis.syncMode = syncMode;', ctx);
+  assert.equal(await ctx.readChoice(), 'pt');
+  const classify = (url) => ctx.syncMode([{ key: 'koServerUrl', value: url }]);
+  for (const host of ['pmy', 'popds', 'psync']) {
+    assert.equal(classify(`https://${host}.ybx.app/api/v1/crosspoint/kosync`), 'plugin');
+    assert.equal(classify(`https://${host}.ybx.app/kosync`), 'account');
+  }
+  assert.equal(classify('http://psync.ybx.app/api/v1/crosspoint/kosync'), 'plugin');
+  assert.equal(classify('http://popds.ybx.app/kosync'), 'account');
+  assert.equal(classify('http://pmy.ybx.app/api/v1/crosspoint/kosync'), 'other');
+  assert.equal(classify('https://pmy.ybx.app.evil.example/kosync'), 'other');
 });

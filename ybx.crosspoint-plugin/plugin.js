@@ -17,13 +17,14 @@ CrossPoint.registerPlugin(async (container, api) => {
   // different reachability. Only connection failures switch hosts; HTTP replies
   // (including 401/429/5xx) and response-body errors stay on the chosen host.
   const mirrorRequest = (() => {
-    const pairs = { 'my.ybx.app': 'emy.ybx.app',
-      'opds.ybx.app': 'eopds.ybx.app', 'sync.ybx.app': 'esync.ybx.app' };
+    const pairs = { 'my.ybx.app': ['emy.ybx.app', 'pmy.ybx.app'],
+      'opds.ybx.app': ['eopds.ybx.app', 'popds.ybx.app'],
+      'sync.ybx.app': ['esync.ybx.app', 'psync.ybx.app'] };
     const preferences = new Map();
     const retryAfter = 5 * 60 * 1000;
-    // Ручной выбор («Сервер: Авто / Основной / Европа») отключает зондирование:
-    // Основной и Европа обращаются ровно к одному серверу и никогда не пробуют
-    // второй — сбой соединения возвращается вызывающему, режим меняет человек.
+    // Ручной выбор («Сервер: Авто / Основной / Европа / Португалия») отключает зондирование:
+    // Ручные режимы обращаются ровно к одному серверу и никогда не пробуют
+    // другой — сбой соединения возвращается вызывающему, режим меняет человек.
     let mode = 'auto';
     const request = async (transport, address, send) => {
       let url;
@@ -35,14 +36,15 @@ CrossPoint.registerPlugin(async (container, api) => {
         return send(address);
       }
       const main = Object.keys(pairs).find((host) =>
-        url.hostname === host || url.hostname === pairs[host]);
+        url.hostname === host || pairs[host].includes(url.hostname));
       if (!main || url.username || url.password || url.port ||
           !['http:', 'https:'].includes(url.protocol)) return send(address);
       const key = transport + ':' + url.protocol + '//' + main;
       const now = Date.now();
       const previous = preferences.get(key);
-      const first = previous && previous.host === pairs[main] && now < previous.retryAt
-        ? pairs[main] : main;
+      const hosts = [main, ...pairs[main]];
+      const first = previous && hosts.includes(previous.host) && now < previous.retryAt
+        ? previous.host : main;
       const attempt = async (host) => {
         const target = new URL(url.href);
         target.hostname = host;
@@ -57,38 +59,43 @@ CrossPoint.registerPlugin(async (container, api) => {
         }
         return result;
       };
-    // Ручной выбор исключает второй сервер: попытка ровно одна.
-    if (mode !== 'auto') return attempt(mode === 'eu' ? pairs[main] : main);
-      try {
-        const result = await attempt(first);
-        preferences.set(key, { host: first,
-          retryAt: first === main ? 0 : (previous?.retryAt > now ? previous.retryAt : now + retryAfter) });
-        return result;
-      } catch (error) {
-        if (Number(error.status) >= 100 ||
-            !(error.network === true || error.name === 'TypeError')) throw error;
-        const second = first === main ? pairs[main] : main;
-        // Also throttle main probes when both hosts are unavailable.
-        preferences.set(key, { host: pairs[main], retryAt: now + retryAfter });
-        const result = await attempt(second);
-        preferences.set(key, { host: second, retryAt: second === main ? 0 : now + retryAfter });
-        return result;
+      // Ручной выбор: попытка ровно одна, без зондирования.
+      if (mode !== 'auto') return attempt(mode === 'eu' ? pairs[main][0]
+        : mode === 'pt' ? pairs[main][1] : main);
+      const candidates = [first, ...hosts.filter((host) => host !== first)];
+      for (const host of candidates) {
+        try {
+          const result = await attempt(host);
+          preferences.set(key, { host, retryAt: host === main ? 0
+            : (previous?.retryAt > now ? previous.retryAt : now + retryAfter) });
+          return result;
+        } catch (error) {
+          if (Number(error.status) >= 100 ||
+              !(error.network === true || error.name === 'TypeError')) throw error;
+          // Throttle main probes even when every host is unavailable.
+          preferences.set(key, { host: first === main ? pairs[main][0] : first,
+            retryAt: now + retryAfter });
+          if (host === candidates[candidates.length - 1]) throw error;
+        }
       }
     };
     // Страница применяет сохранённый на SD выбор после чтения файла: один
     // сеттер для обоих транспортов, режим сознательно не зависит от транспорта.
     request.choice = (next) => {
-      if (!['auto', 'main', 'eu'].includes(next)) return mode;
+      if (!['auto', 'main', 'eu', 'pt'].includes(next)) return mode;
       // Смена режима стирает память о последнем удачном хосте, чтобы Авто
       // снова начинало с основного сервера.
       mode = next;
       preferences.clear();
       return mode;
     };
-    request.effectiveEurope = () => mode === 'eu'
-      || (mode === 'auto' && Array.from(preferences.values())
-        .some((entry) => entry && typeof entry.host === 'string'
-          && ['emy.ybx.app', 'eopds.ybx.app', 'esync.ybx.app'].includes(entry.host)));
+    request.effectiveTarget = () => {
+      if (mode !== 'auto') return mode;
+      const entries = Array.from(preferences.values());
+      if (entries.some((entry) => Object.values(pairs).some((hosts) => hosts[1] === entry.host))) return 'pt';
+      if (entries.some((entry) => Object.values(pairs).some((hosts) => hosts[0] === entry.host))) return 'eu';
+      return 'main';
+    };
     return request;
   })();
   // Wrap only the remote transports; SD-file and reader-local fetches bypass it.
@@ -110,17 +117,18 @@ CrossPoint.registerPlugin(async (container, api) => {
   // until «Обновить ключ» moves them onto the sync host.
   const KOSYNC_URL = 'http://sync.ybx.app/api/v1/crosspoint/kosync';
   // The server answers with the clippings base of the host that served the
-  // request: main normally, the EU mirror when the main one is unreachable.
-  // Both bases front the same clipping store, so both are trusted; no other
+  // request: main normally, a mirror when the main one is unreachable.
+  // All bases front the same clipping store, so all are trusted; no other
   // address is. The reader's KOSync client bypasses the plugin's mirror
   // wrapper, so the base the server named is the one that must be saved.
-  const CLIPPINGS_KOSYNC_URLS = ['https://my.ybx.app', 'https://emy.ybx.app']
+  const CLIPPINGS_KOSYNC_URLS = ['https://my.ybx.app', 'https://emy.ybx.app', 'https://pmy.ybx.app']
     .map((host) => host + '/api/v1/crosspoint/kosync');
   const isClippingsUrl = (url) => CLIPPINGS_KOSYNC_URLS.includes(url);
   const KOSYNC_PREVIOUS = DIR + '/kosync-previous.json';
   // The cabinet and the installer page hand out the catalogue-hosted address
   // instead, and both routes answer for the same reader account.
-  const YBX_SYNC_HOSTS = ['my.ybx.app', 'ybx.app', 'opds.ybx.app'];
+  const YBX_SYNC_HOSTS = ['my.ybx.app', 'emy.ybx.app', 'pmy.ybx.app', 'ybx.app',
+    'opds.ybx.app', 'eopds.ybx.app', 'popds.ybx.app', 'sync.ybx.app', 'esync.ybx.app', 'psync.ybx.app'];
   // Firmware vCodex импортирует статистику из фиксированного файла: сначала
   // кладём его туда, где его ищет страница импорта в данных плагина, затем —
   // в путь, который читает Settings → Apps → Reading Stats.
@@ -337,8 +345,8 @@ CrossPoint.registerPlugin(async (container, api) => {
   // Режим не зависит от транспорта — он общий для запросов браузера и ридера,
   // в отличие от запомненного адреса в ключах transport:host.
   const SERVER_PREFERENCE = DIR + '/server-preference.json';
-  const SERVER_MODES = ['auto', 'main', 'eu'];
-  const SERVER_CHOICE_LABELS = [['auto', 'Авто'], ['main', 'Основной'], ['eu', 'Европа']];
+  const SERVER_MODES = ['auto', 'main', 'eu', 'pt'];
+  const SERVER_CHOICE_LABELS = [['auto', 'Авто'], ['main', 'Основной'], ['eu', 'Европа'], ['pt', 'Португалия']];
   const saveServerChoice = (mode) => writeJson(SERVER_PREFERENCE, { mode, schema: 1 });
   const readServerChoice = async () => {
     const pref = await readJson(SERVER_PREFERENCE);
@@ -353,18 +361,18 @@ CrossPoint.registerPlugin(async (container, api) => {
     try {
       const url = new URL(address);
       if (url.username || url.password || url.search || url.hash || url.port) return 'other';
-      if (!['my.ybx.app', 'emy.ybx.app', 'ybx.app', 'opds.ybx.app', 'eopds.ybx.app', 'sync.ybx.app', 'esync.ybx.app'].includes(url.hostname)) {
+      if (!['my.ybx.app', 'emy.ybx.app', 'pmy.ybx.app', 'ybx.app', 'opds.ybx.app', 'eopds.ybx.app', 'popds.ybx.app', 'sync.ybx.app', 'esync.ybx.app', 'psync.ybx.app'].includes(url.hostname)) {
         return 'other';
       }
       const path = url.pathname.replace(/\/+$/, '') || '/';
       if (path === '/api/v1/crosspoint/kosync'
           && (url.protocol === 'https:'
-              || (['sync.ybx.app', 'esync.ybx.app'].includes(url.hostname) && url.protocol === 'http:'))) {
+              || (['sync.ybx.app', 'esync.ybx.app', 'psync.ybx.app'].includes(url.hostname) && url.protocol === 'http:'))) {
         return 'plugin';
       }
       // Caddy serves both schemes on OPDS/sync; primary/cabinet hosts
       // redirect HTTP, which old readers may not follow.
-      const legacyHost = ['opds.ybx.app', 'eopds.ybx.app', 'sync.ybx.app', 'esync.ybx.app'].includes(url.hostname);
+      const legacyHost = ['opds.ybx.app', 'eopds.ybx.app', 'popds.ybx.app', 'sync.ybx.app', 'esync.ybx.app', 'psync.ybx.app'].includes(url.hostname);
       if (path === '/kosync' &&
           (url.protocol === 'https:' || (legacyHost && url.protocol === 'http:'))) {
         return 'account';
@@ -930,7 +938,7 @@ CrossPoint.registerPlugin(async (container, api) => {
   const COVER_MODE = 3;        // CrossPointSettings::SLEEP_SCREEN_MODE::COVER
   const COVER_CUSTOM_MODE = 4; // ...::COVER_CUSTOM — the card when sleep is not from a book
   // Версию в адресах берём из device.json ридера: сборка 1.7.0 подставляет свою.
-  const handlerVersion = (device) => (String(device?.download?.url || '').match(/[?&]v=([^&]+)/) || [])[1] || '1.6.16';
+  const handlerVersion = (device) => (String(device?.download?.url || '').match(/[?&]v=([^&]+)/) || [])[1] || '1.6.17';
   const sleepDownloadHandler = (v) => ({
     url: API + '/api/v1/crosspoint/sleep-image?w={cfg.sleep_width}&h={cfg.sleep_height}&v=' + v,
     headers: { Authorization: 'Bearer {token}' },
@@ -988,25 +996,24 @@ CrossPoint.registerPlugin(async (container, api) => {
   // Прошивка читает каталог, поиск, книги, QR-вход, события и адрес экрана
   // сна прямо из статического device.json. Выбор «Сервер» должен двигать и
   // эти адреса, иначе читатель остаётся на основном сервере. Меняем только
-  // три известные пары хостов, сохраняя схему и остальные поля.
+  // три известные группы хостов, сохраняя схему и остальные поля.
   const DEVICE_HOST_PAIRS = [
-    ['my.ybx.app', 'emy.ybx.app'],
-    ['opds.ybx.app', 'eopds.ybx.app'],
-    ['sync.ybx.app', 'esync.ybx.app'],
+    ['my.ybx.app', 'emy.ybx.app', 'pmy.ybx.app'],
+    ['opds.ybx.app', 'eopds.ybx.app', 'popds.ybx.app'],
+    ['sync.ybx.app', 'esync.ybx.app', 'psync.ybx.app'],
   ];
-  function rewriteDeviceHosts(device, europe) {
-    const toEurope = Boolean(europe);
+  function rewriteDeviceHosts(device, target) {
+    const targetIndex = { main: 0, eu: 1, pt: 2 }[target];
+    if (targetIndex === undefined) return false;
     let changed = false;
     const walk = (value) => {
       if (typeof value === 'string') {
         let parsedUrl = null;
         try { parsedUrl = new URL(value); } catch { parsedUrl = null; }
         if (!parsedUrl || (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:')) return value;
-        const pair = DEVICE_HOST_PAIRS.find(([main, mirror]) =>
-          parsedUrl.hostname === main || parsedUrl.hostname === mirror);
+        const pair = DEVICE_HOST_PAIRS.find((hosts) => hosts.includes(parsedUrl.hostname));
         if (!pair) return value;
-        const [main, mirror] = pair;
-        const target = toEurope ? mirror : main;
+        const target = pair[targetIndex];
         if (parsedUrl.hostname === target) return value;
         const host = parsedUrl.hostname;
         const index = value.indexOf(host);
@@ -1028,9 +1035,9 @@ CrossPoint.registerPlugin(async (container, api) => {
     return changed;
   }
   // Writes only when an address actually moves: no flash wear on page open.
-  async function rewriteDeviceHostsOnDisk(europe) {
+  async function rewriteDeviceHostsOnDisk(target) {
     const device = await readSleepDevice();
-    if (!rewriteDeviceHosts(device, europe)) return false;
+    if (!rewriteDeviceHosts(device, target)) return false;
     await api.writeFile(SLEEP_DEVICE, sleepBytes(new TextEncoder().encode(
       JSON.stringify(device, null, 2) + '\n')));
     return true;
@@ -2080,11 +2087,11 @@ CrossPoint.registerPlugin(async (container, api) => {
     }
   }
 
-  // ── Сервер: Авто / Основной / Европа ─────────────────────────────────────
+  // ── Сервер: Авто / Основной / Европа / Португалия ─────────────────────────────────────
   // Управление доступно и без привязки YBX: менять сервер нужно как раз тогда,
   // когда основной недоступен. Выбор сохраняется в JSON на SD и применяется к
-  // зеркальной обёртке немедленно. Область действия — запросы плагина: каталог,
-  // поиск и книги прошивка берёт напрямую по статическим адресам device.json.
+  // зеркальной обёртке немедленно. Адреса каталога, поиска и книг для прошивки
+  // также обновляются в device.json.
   function buildServerSection() {
     const group = document.createElement('div');
     group.className = 'ybx-setting-group';
@@ -2092,10 +2099,11 @@ CrossPoint.registerPlugin(async (container, api) => {
     title.textContent = 'Сервер';
     const hint = document.createElement('p');
     hint.className = 'ybx-hint';
-    hint.textContent = 'Авто — основной сервер, при его недоступности европейское зеркало. '
-      + 'Основной — только ybx.app. Европа — только зеркало (emy/eopds/esync). '
-      + 'Выбор охватывает запросы плагина; каталог и загрузка книг идут с ридера '
-      + 'переписывает адреса в device.json (каталог, поиск, книги, QR, события, экран сна); переоткройте плагин на ридере.';
+    hint.textContent = 'Авто — основной сервер, затем чешское зеркало, затем португальское при сбоях соединения. '
+      + 'Основной — только основной сервер. Европа — только чешское зеркало (emy/eopds/esync). '
+      + 'Португалия — только португальское зеркало (pmy/popds/psync). '
+      + 'Выбор охватывает запросы плагина и переписывает адреса в device.json '
+      + '(каталог, поиск, книги, QR, события, экран сна); переоткройте плагин на ридере.';
     const actions = document.createElement('div');
     actions.className = 'ybx-actions';
     const buttons = [];
@@ -2122,10 +2130,10 @@ CrossPoint.registerPlugin(async (container, api) => {
           paintChoice();
           let deviceNote = '';
           try {
-            const europe = mode === 'eu' || mirrorRequest.effectiveEurope();
-            if (await rewriteDeviceHostsOnDisk(europe)) {
+            const target = mirrorRequest.effectiveTarget();
+            if (await rewriteDeviceHostsOnDisk(target)) {
               deviceNote = ' Адреса в device.json '
-                + (europe ? 'переключены на зеркало' : 'возвращены на основной сервер')
+                + (target !== 'main' ? 'переключены на зеркало' : 'возвращены на основной сервер')
                 + '; переоткройте плагин на ридере, чтобы прошивка подхватила их.';
             }
           } catch (deviceError) {
@@ -2170,7 +2178,7 @@ CrossPoint.registerPlugin(async (container, api) => {
     mirrorRequest.choice(serverChoice);
     await ensureDeviceConfig();
     try {
-      await rewriteDeviceHostsOnDisk(serverChoice === 'eu' || mirrorRequest.effectiveEurope());
+      await rewriteDeviceHostsOnDisk(mirrorRequest.effectiveTarget());
     } catch (error) { /* device.json may be unavailable; do not block page */ }
     token = await readPluginToken();
     if (!token || !token.access_token) {

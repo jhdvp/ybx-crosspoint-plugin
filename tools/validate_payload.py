@@ -38,6 +38,9 @@ def validate(directory: Path = PAYLOAD, canonical: Path | None = None) -> list[s
     for needed in ("manifest.json", "plugin.json", "plugin.js", "device.json"):
         if needed not in files:
             errors.append(f"required runtime file missing: {needed}")
+    readme = directory / "README.md"
+    if readme.is_file() and readme.stat().st_size > 16384:
+        errors.append("README.md must not exceed 16 KB (hub limit)")
     for name in files:
         if not isinstance(name, str) or not SAFE_NAME.fullmatch(name) or name == "token.json":
             errors.append(f"unsafe/private file name: {name!r}")

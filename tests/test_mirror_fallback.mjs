@@ -332,7 +332,9 @@ test('a new sleep handler follows the chosen server and mirrored handlers stay r
     mirrorRequest: { effectiveTarget: () => 'pt' },
     sleepBytes: (bytes) => bytes, api: { writeFile: async (path, bytes) => written.push([path, bytes]) } });
   vm.runInContext(source.slice(start, end) + source.slice(pairs, rewriteEnd) + source.slice(writeStart, writeEnd)
-    + '\nglobalThis.write = writeSleepHandler; globalThis.ours = isOurSleepUrl;', ctx);
+    + '\nglobalThis.write = writeSleepHandler; globalThis.ours = isOurSleepUrl;'
+    + 'globalThis.target = sleepHostTarget; globalThis.rewrite = rewriteDeviceHosts;'
+    + 'globalThis.handler = sleepDownloadHandler;', ctx);
   const device = { events: {} };
   await ctx.write(device, true);
   assert.match(device.events['sleep.enter'].download.url, /^https:\/\/pmy\.ybx\.app\/api\/v1\/crosspoint\/sleep-image\?/);
@@ -342,4 +344,11 @@ test('a new sleep handler follows the chosen server and mirrored handlers stay r
   }
   assert.equal(ctx.ours('https://evil.example/api/v1/crosspoint/sleep-image?w=1'), false);
   assert.equal(ctx.ours('https://pmy.ybx.app/other'), false);
+  // The in-page update keeps the handler on the host the reader already uses.
+  for (const [host, expected] of [['my', 'main'], ['emy', 'eu'], ['pmy', 'pt']]) {
+    assert.equal(ctx.target(`https://${host}.ybx.app/api/v1/crosspoint/sleep-image?w=1`), expected);
+    const handler = { download: ctx.handler('1.6.17') };
+    ctx.rewrite(handler, ctx.target(`https://${host}.ybx.app/x`));
+    assert.match(handler.download.url, new RegExp(`^https://${host}\\.ybx\\.app/`));
+  }
 });

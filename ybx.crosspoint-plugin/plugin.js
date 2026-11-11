@@ -947,6 +947,12 @@ CrossPoint.registerPlugin(async (container, api) => {
         && url.pathname === '/api/v1/crosspoint/sleep-image';
     } catch { return false; }
   };
+  // Which server an installed sleep handler already points to.
+  const sleepHostTarget = (value) => {
+    try {
+      return { 'emy.ybx.app': 'eu', 'pmy.ybx.app': 'pt' }[new URL(String(value || '')).hostname] || 'main';
+    } catch { return 'main'; }
+  };
   const sleepDownloadHandler = (v) => ({
     url: API + '/api/v1/crosspoint/sleep-image?w={cfg.sleep_width}&h={cfg.sleep_height}&v=' + v,
     headers: { Authorization: 'Bearer {token}' },
@@ -1926,9 +1932,14 @@ CrossPoint.registerPlugin(async (container, api) => {
         const ourDownload = previousSleep.download
           && previousSleep.download.dest === SLEEP_SLOT
           && isOurSleepUrl(previousSleep.download.url);
-        updateDevice.events['sleep.enter'] = ourDownload
-          ? { download: sleepDownloadHandler(expectedVersion) }
-          : previousSleep;
+        if (ourDownload) {
+          // Keep the handler on the server the reader already uses.
+          const handler = { download: sleepDownloadHandler(expectedVersion) };
+          rewriteDeviceHosts(handler, sleepHostTarget(previousSleep.download.url));
+          updateDevice.events['sleep.enter'] = handler;
+        } else {
+          updateDevice.events['sleep.enter'] = previousSleep;
+        }
         bytes.set('device.json', new TextEncoder().encode(
           JSON.stringify(updateDevice, null, 2) + '\n'));
       }

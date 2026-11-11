@@ -278,6 +278,37 @@ for (const [main, eu, pt] of [['my', 'emy', 'pmy'], ['opds', 'eopds', 'popds'], 
   });
 }
 
+test('only the reader transport decides device.json, and only inside its retry window', async () => {
+  const reachableMirror = async (url) => ({ status: url.includes('//my.') ? 0 : 200 });
+  const reachablePtOnly = async (url) => {
+    if (url.includes('//my.') || url.includes('//emy.')) throw new TypeError('Failed to fetch');
+    return { status: 200 };
+  };
+  // device.json is read by the firmware alone, so a phone that reached Europe
+  // on its own cannot move the reader off the main server.
+  const browserOnly = harness();
+  await browserOnly.request('browser', 'https://my.ybx.app/api', reachableMirror);
+  assert.equal(browserOnly.request.effectiveTarget(), 'main');
+
+  const reader = harness();
+  await reader.request('reader', 'https://my.ybx.app/api', reachablePtOnly);
+  assert.equal(reader.request.effectiveTarget(), 'pt');
+  // Past the window the next request starts on main again, so the file is not
+  // pinned to a mirror nobody has re-confirmed.
+  reader.advance();
+  assert.equal(reader.request.effectiveTarget(), 'main');
+
+  const eu = harness();
+  await eu.request('reader', 'https://my.ybx.app/api', reachableMirror);
+  assert.equal(eu.request.effectiveTarget(), 'eu');
+
+  // The reader's own mirror wins over a farther one the browser saw alone.
+  const mixed = harness();
+  await mixed.request('browser', 'https://my.ybx.app/api', reachablePtOnly);
+  await mixed.request('reader', 'https://my.ybx.app/api', reachableMirror);
+  assert.equal(mixed.request.effectiveTarget(), 'eu');
+});
+
 test('device hosts round-trip between main, EU and PT without changing other bytes', () => {
   const start = source.indexOf('  const DEVICE_HOST_PAIRS =');
   const end = source.indexOf('  // Writes only when', start);
@@ -317,4 +348,38 @@ test('saved PT choice and Portuguese KOSync hosts are recognized', async () => {
   assert.equal(classify('http://popds.ybx.app/kosync'), 'account');
   assert.equal(classify('http://pmy.ybx.app/api/v1/crosspoint/kosync'), 'other');
   assert.equal(classify('https://pmy.ybx.app.evil.example/kosync'), 'other');
+});
+
+test('a new sleep handler follows the chosen server and mirrored handlers stay recognised', async () => {
+  const start = source.indexOf('  const isOurSleepUrl =');
+  const end = source.indexOf('  // Панели, для которых сервер рисует карточку');
+  const pairs = source.indexOf('  const DEVICE_HOST_PAIRS =');
+  const rewriteEnd = source.indexOf('  // Writes only when an address actually moves');
+  const writeStart = source.indexOf('  async function writeSleepHandler');
+  const writeEnd = source.indexOf('  // Включение: сначала сохраняем');
+  const written = [];
+  const ctx = vm.createContext({ URL, JSON, TextEncoder, btoa, String, Boolean, API: 'https://my.ybx.app',
+    SLEEP_SLOT: '/sleep.bmp', SLEEP_DEVICE: '/device.json', handlerVersion: () => '1.6.17',
+    mirrorRequest: { effectiveTarget: () => 'pt' },
+    sleepBytes: (bytes) => bytes, api: { writeFile: async (path, bytes) => written.push([path, bytes]) } });
+  vm.runInContext(source.slice(start, end) + source.slice(pairs, rewriteEnd) + source.slice(writeStart, writeEnd)
+    + '\nglobalThis.write = writeSleepHandler; globalThis.ours = isOurSleepUrl;'
+    + 'globalThis.target = sleepHostTarget; globalThis.rewrite = rewriteDeviceHosts;'
+    + 'globalThis.handler = sleepDownloadHandler;', ctx);
+  const device = { events: {} };
+  await ctx.write(device, true);
+  assert.match(device.events['sleep.enter'].download.url, /^https:\/\/pmy\.ybx\.app\/api\/v1\/crosspoint\/sleep-image\?/);
+  assert.equal(written.length, 1);
+  for (const host of ['my', 'emy', 'pmy']) {
+    assert.equal(ctx.ours(`https://${host}.ybx.app/api/v1/crosspoint/sleep-image?w=1`), true);
+  }
+  assert.equal(ctx.ours('https://evil.example/api/v1/crosspoint/sleep-image?w=1'), false);
+  assert.equal(ctx.ours('https://pmy.ybx.app/other'), false);
+  // The in-page update keeps the handler on the host the reader already uses.
+  for (const [host, expected] of [['my', 'main'], ['emy', 'eu'], ['pmy', 'pt']]) {
+    assert.equal(ctx.target(`https://${host}.ybx.app/api/v1/crosspoint/sleep-image?w=1`), expected);
+    const handler = { download: ctx.handler('1.6.17') };
+    ctx.rewrite(handler, ctx.target(`https://${host}.ybx.app/x`));
+    assert.match(handler.download.url, new RegExp(`^https://${host}\\.ybx\\.app/`));
+  }
 });

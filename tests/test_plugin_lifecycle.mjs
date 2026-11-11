@@ -573,7 +573,8 @@ function bmpCard(width, height) {
 }
 
 async function slotWorld({ slot = null, backup = null, legacyBackup = null, preference = null,
-                           handler = 'request', token = { access_token: 'cp_x' } } = {}) {
+                           handler = 'request', token = { access_token: 'cp_x' },
+                           target = 'main' } = {}) {
   const files = new Map();
   if (slot) files.set('/sleep.bmp', slot);
   if (backup) files.set('/.crosspoint/plugins/ybx/sleep-original.bmp', backup);
@@ -586,7 +587,11 @@ async function slotWorld({ slot = null, backup = null, legacyBackup = null, pref
   const settings = [];
   const ctx = vm.createContext({
     DIR: '/.crosspoint/plugins/ybx', API: 'https://my.ybx.app', token,
-    TextEncoder, Uint8Array, String, Boolean, Math, JSON, Error, URLSearchParams, encodeURIComponent,
+    // The sleep handler follows the server choice; rewriteDeviceHosts itself
+    // comes from the sliced plugin source, never from a stub.
+    mirrorRequest: { effectiveTarget: () => target },
+    TextEncoder, Uint8Array, String, Boolean, Math, JSON, Error, URL, URLSearchParams,
+    encodeURIComponent,
     btoa: (s) => Buffer.from(s, 'binary').toString('base64'),
     readJson: async (path) => path.endsWith('sleep-preference.json')
       ? (preference === null ? null : { enabled: preference, schema: 1 })
@@ -635,6 +640,17 @@ test('turning the card on backs up a foreign picture first', async () => {
   assert.deepEqual([...on.files.get('/.crosspoint/plugins/ybx/sleep-original.bmp')], [...theirs]);
   assert.ok(on.device.events['sleep.enter'].download);
   assert.deepEqual(on.settings.map((item) => item.sleepScreen), [2]);
+});
+
+test('the written device.json puts the sleep handler on the chosen server', async () => {
+  const devicePath = '/.crosspoint/plugins/ybx/device.json';
+  for (const [target, host] of [['main', 'my'], ['eu', 'emy'], ['pt', 'pmy']]) {
+    const world = await slotWorld({ target });
+    await world.ctx.setSleepCard(true, 3);
+    const written = JSON.parse(Buffer.from(world.files.get(devicePath)).toString());
+    assert.match(written.events['sleep.enter'].download.url,
+      new RegExp(`^https://${host}\\.ybx\\.app/api/v1/crosspoint/sleep-image\\?`), target);
+  }
 });
 
 test('opening the page removes a card left by an always-on version, and only that', async () => {

@@ -939,6 +939,14 @@ CrossPoint.registerPlugin(async (container, api) => {
   const COVER_CUSTOM_MODE = 4; // ...::COVER_CUSTOM — the card when sleep is not from a book
   // Версию в адресах берём из device.json ридера: сборка 1.7.0 подставляет свою.
   const handlerVersion = (device) => (String(device?.download?.url || '').match(/[?&]v=([^&]+)/) || [])[1] || '1.6.17';
+  // The handler's host may already be moved to a mirror by the server choice.
+  const isOurSleepUrl = (value) => {
+    try {
+      const url = new URL(String(value || ''));
+      return ['my.ybx.app', 'emy.ybx.app', 'pmy.ybx.app'].includes(url.hostname)
+        && url.pathname === '/api/v1/crosspoint/sleep-image';
+    } catch { return false; }
+  };
   const sleepDownloadHandler = (v) => ({
     url: API + '/api/v1/crosspoint/sleep-image?w={cfg.sleep_width}&h={cfg.sleep_height}&v=' + v,
     headers: { Authorization: 'Bearer {token}' },
@@ -1056,6 +1064,10 @@ CrossPoint.registerPlugin(async (container, api) => {
     // Off means no sleep.enter handler at all: no network work before sleep.
     if (enabled) device.events['sleep.enter'] = { download: sleepDownloadHandler(v) };
     else delete device.events['sleep.enter'];
+    // The new handler carries the main host; move it to the chosen server in
+    // the same write, so a reader that sleeps before the page is reopened
+    // does not go to a host the user cannot reach.
+    rewriteDeviceHosts(device, mirrorRequest.effectiveTarget());
     await api.writeFile(SLEEP_DEVICE, sleepBytes(new TextEncoder().encode(
       JSON.stringify(device, null, 2) + '\n')));
   }
@@ -1913,8 +1925,7 @@ CrossPoint.registerPlugin(async (container, api) => {
         updateDevice.events ||= {};
         const ourDownload = previousSleep.download
           && previousSleep.download.dest === SLEEP_SLOT
-          && String(previousSleep.download.url || '').startsWith(
-            API + '/api/v1/crosspoint/sleep-image?');
+          && isOurSleepUrl(previousSleep.download.url);
         updateDevice.events['sleep.enter'] = ourDownload
           ? { download: sleepDownloadHandler(expectedVersion) }
           : previousSleep;

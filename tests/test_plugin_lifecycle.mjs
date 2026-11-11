@@ -586,6 +586,8 @@ async function slotWorld({ slot = null, backup = null, legacyBackup = null, pref
   const settings = [];
   const ctx = vm.createContext({
     DIR: '/.crosspoint/plugins/ybx', API: 'https://my.ybx.app', token,
+    // The sleep handler follows the server choice; these tests use the main server.
+    mirrorRequest: { effectiveTarget: () => 'main' }, rewriteDeviceHosts: () => false,
     TextEncoder, Uint8Array, String, Boolean, Math, JSON, Error, URLSearchParams, encodeURIComponent,
     btoa: (s) => Buffer.from(s, 'binary').toString('base64'),
     readJson: async (path) => path.endsWith('sleep-preference.json')

@@ -318,3 +318,28 @@ test('saved PT choice and Portuguese KOSync hosts are recognized', async () => {
   assert.equal(classify('http://pmy.ybx.app/api/v1/crosspoint/kosync'), 'other');
   assert.equal(classify('https://pmy.ybx.app.evil.example/kosync'), 'other');
 });
+
+test('a new sleep handler follows the chosen server and mirrored handlers stay recognised', async () => {
+  const start = source.indexOf('  const isOurSleepUrl =');
+  const end = source.indexOf('  // Панели, для которых сервер рисует карточку');
+  const pairs = source.indexOf('  const DEVICE_HOST_PAIRS =');
+  const rewriteEnd = source.indexOf('  // Writes only when an address actually moves');
+  const writeStart = source.indexOf('  async function writeSleepHandler');
+  const writeEnd = source.indexOf('  // Включение: сначала сохраняем');
+  const written = [];
+  const ctx = vm.createContext({ URL, JSON, TextEncoder, btoa, String, Boolean, API: 'https://my.ybx.app',
+    SLEEP_SLOT: '/sleep.bmp', SLEEP_DEVICE: '/device.json', handlerVersion: () => '1.6.17',
+    mirrorRequest: { effectiveTarget: () => 'pt' },
+    sleepBytes: (bytes) => bytes, api: { writeFile: async (path, bytes) => written.push([path, bytes]) } });
+  vm.runInContext(source.slice(start, end) + source.slice(pairs, rewriteEnd) + source.slice(writeStart, writeEnd)
+    + '\nglobalThis.write = writeSleepHandler; globalThis.ours = isOurSleepUrl;', ctx);
+  const device = { events: {} };
+  await ctx.write(device, true);
+  assert.match(device.events['sleep.enter'].download.url, /^https:\/\/pmy\.ybx\.app\/api\/v1\/crosspoint\/sleep-image\?/);
+  assert.equal(written.length, 1);
+  for (const host of ['my', 'emy', 'pmy']) {
+    assert.equal(ctx.ours(`https://${host}.ybx.app/api/v1/crosspoint/sleep-image?w=1`), true);
+  }
+  assert.equal(ctx.ours('https://evil.example/api/v1/crosspoint/sleep-image?w=1'), false);
+  assert.equal(ctx.ours('https://pmy.ybx.app/other'), false);
+});

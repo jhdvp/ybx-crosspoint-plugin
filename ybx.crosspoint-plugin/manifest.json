@@ -1,7 +1,7 @@
 {
   "name": "ybx",
   "title": "YBX",
-  "version": "1.6.16",
+  "version": "1.6.17",
   "description": "Яндекс Книги, WB Книги, ЛитРес и загруженные EPUB: объединённая библиотека, поиск и статистика YBX.",
   "mount": "settings",
   "author": "YBX",

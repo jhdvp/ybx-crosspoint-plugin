@@ -14,7 +14,7 @@ class PayloadContractTests(unittest.TestCase):
     def test_stock_1614_static_merged_library_and_search(self):
         payload = json.loads((PAYLOAD / "device.json").read_text(encoding="utf-8"))
         manifest = json.loads((PAYLOAD / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "1.6.16")
+        self.assertEqual(manifest["version"], "1.6.17")
         browse = payload["browse"]
         self.assertEqual(browse["format"], "json")
         self.assertEqual(browse["page_size"], 10)
@@ -39,7 +39,7 @@ class PayloadContractTests(unittest.TestCase):
         for entry in browse["lists"]:
             self.assertNotIn("parent", entry)
             self.assertNotIn("id", entry)
-            self.assertIn("v=1.6.16", entry["url"])
+            self.assertIn("v=1.6.17", entry["url"])
         self.assertEqual(payload["token"]["file"], "token.json")
         self.assertEqual(payload["download"]["dest_dir"], "/books/ybx")
         self.assertIn("Bearer {token}", payload["download"]["headers"]["Authorization"])
@@ -117,8 +117,8 @@ class PayloadContractTests(unittest.TestCase):
             original = device["download"]["url"]
             for forged in (
                 "{url}",  # an arbitrary row URL could exfiltrate Bearer
-                "https://attacker.example/books/{id}/download?v=1.6.16",
-                "http://my.ybx.app/api/v1/crosspoint/books/{id}/download?v=1.6.16",
+                "https://attacker.example/books/{id}/download?v=1.6.17",
+                "http://my.ybx.app/api/v1/crosspoint/books/{id}/download?v=1.6.17",
             ):
                 device["download"]["url"] = forged
                 target.write_text(json.dumps(device))

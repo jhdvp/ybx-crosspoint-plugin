@@ -229,3 +229,10 @@ test('missing relay support refuses opt-in, no settings altered', async () => {
   assert.equal(t.writes.length, 0);
   assert.equal(t.messages.at(-1)[1], 'err');
 });
+
+test('Portuguese clippings endpoint is trusted and saved unchanged', async () => {
+  const base = 'https://pmy.ybx.app/api/v1/crosspoint/kosync';
+  const t = scenario({ response: { kosync_key: KEY, sync_url: base, clippings_enabled: true } });
+  await t.click();
+  assert.equal(t.values.koServerUrl, base);
+});

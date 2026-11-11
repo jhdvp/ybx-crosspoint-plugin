@@ -10,7 +10,7 @@ from tools.build_release_zip import SOURCE, build
 
 class ReleaseZipTests(unittest.TestCase):
     def test_stable_compatible_zip_layout_and_determinism(self):
-        manifest = json.loads((SOURCE / "manifest.json").read_text())
+        manifest = json.loads((SOURCE / "manifest.json").read_text(encoding="utf-8"))
         with tempfile.TemporaryDirectory() as tmp:
             a, b = Path(tmp) / "a.zip", Path(tmp) / "b.zip"
             hash_a = build(a)
@@ -30,7 +30,7 @@ class ReleaseZipTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             replica = Path(tmp) / "payload"
             shutil.copytree(SOURCE, replica)
-            manifest = json.loads((replica / "manifest.json").read_text())
+            manifest = json.loads((replica / "manifest.json").read_text(encoding="utf-8"))
             manifest["files"].append("token.json")
             (replica / "manifest.json").write_text(json.dumps(manifest))
             (replica / "token.json").write_text('{"access_token":"SHOULD_NOT_SHIP"}')

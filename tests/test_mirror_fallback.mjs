@@ -278,6 +278,37 @@ for (const [main, eu, pt] of [['my', 'emy', 'pmy'], ['opds', 'eopds', 'popds'], 
   });
 }
 
+test('only the reader transport decides device.json, and only inside its retry window', async () => {
+  const reachableMirror = async (url) => ({ status: url.includes('//my.') ? 0 : 200 });
+  const reachablePtOnly = async (url) => {
+    if (url.includes('//my.') || url.includes('//emy.')) throw new TypeError('Failed to fetch');
+    return { status: 200 };
+  };
+  // device.json is read by the firmware alone, so a phone that reached Europe
+  // on its own cannot move the reader off the main server.
+  const browserOnly = harness();
+  await browserOnly.request('browser', 'https://my.ybx.app/api', reachableMirror);
+  assert.equal(browserOnly.request.effectiveTarget(), 'main');
+
+  const reader = harness();
+  await reader.request('reader', 'https://my.ybx.app/api', reachablePtOnly);
+  assert.equal(reader.request.effectiveTarget(), 'pt');
+  // Past the window the next request starts on main again, so the file is not
+  // pinned to a mirror nobody has re-confirmed.
+  reader.advance();
+  assert.equal(reader.request.effectiveTarget(), 'main');
+
+  const eu = harness();
+  await eu.request('reader', 'https://my.ybx.app/api', reachableMirror);
+  assert.equal(eu.request.effectiveTarget(), 'eu');
+
+  // The reader's own mirror wins over a farther one the browser saw alone.
+  const mixed = harness();
+  await mixed.request('browser', 'https://my.ybx.app/api', reachablePtOnly);
+  await mixed.request('reader', 'https://my.ybx.app/api', reachableMirror);
+  assert.equal(mixed.request.effectiveTarget(), 'eu');
+});
+
 test('device hosts round-trip between main, EU and PT without changing other bytes', () => {
   const start = source.indexOf('  const DEVICE_HOST_PAIRS =');
   const end = source.indexOf('  // Writes only when', start);

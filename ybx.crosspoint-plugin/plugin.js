@@ -89,11 +89,18 @@ CrossPoint.registerPlugin(async (container, api) => {
       preferences.clear();
       return mode;
     };
+    // device.json is read by the firmware alone, so only the reader transport
+    // decides where those addresses live; the phone's HTTPS path proves nothing
+    // about the reader's TLS. An entry past its retry window is due for a main
+    // probe, so it must keep the file on the main server until that probe.
     request.effectiveTarget = () => {
       if (mode !== 'auto') return mode;
-      const entries = Array.from(preferences.values());
-      if (entries.some((entry) => Object.values(pairs).some((hosts) => hosts[1] === entry.host))) return 'pt';
-      if (entries.some((entry) => Object.values(pairs).some((hosts) => hosts[0] === entry.host))) return 'eu';
+      const now = Date.now();
+      const readerHosts = Array.from(preferences)
+        .filter(([key, entry]) => key.startsWith('reader:') && entry.retryAt > now)
+        .map(([, entry]) => entry.host);
+      if (Object.values(pairs).some(([, pt]) => readerHosts.includes(pt))) return 'pt';
+      if (Object.values(pairs).some(([eu]) => readerHosts.includes(eu))) return 'eu';
       return 'main';
     };
     return request;

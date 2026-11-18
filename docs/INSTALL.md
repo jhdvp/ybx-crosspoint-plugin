@@ -6,7 +6,7 @@
 
 **Рекомендуемый способ:** на ридере открыть `Home → Plugins → Plugin Hub → Community Plugins → YBX` и установить плагин, если он присутствует в каталоге вашей сборки.
 
-**ZIP:** скачать `ybx-plugin-1.6.13.zip` из [GitHub Releases](https://github.com/jhdvp/ybx-crosspoint-plugin/releases/latest), распаковать директорию `ybx/` на карту MicroSD в `/plugins/ybx/` либо `/.crosspoint/plugins/ybx/` согласно версии прошивки. Не допускать вложенного `ybx/ybx`.
+**ZIP:** скачать ZIP-пакет из [GitHub Releases](https://github.com/jhdvp/ybx-crosspoint-plugin/releases/latest), распаковать директорию `ybx/` на карту MicroSD в `/plugins/ybx/` либо `/.crosspoint/plugins/ybx/` согласно версии прошивки. Не допускать вложенного `ybx/ybx`.
 
 Включите плагины: `Settings → Connectivity → Plugins → Enabled` (названия меню могут немного отличаться).
 

@@ -6,7 +6,7 @@
 | | **YBX Stock** | **YBX Native** |
 | --- | --- | --- |
 | Исходник | `jhdvp/ybx-crosspoint-plugin` → `main/ybx.crosspoint-plugin/` | `jhdvp/ybx-crosspoint` → `sd-card/plugins/ybx/` |
-| Версия | **1.6.13** — стабильная | **1.9.1** — проверяемый кандидат PR #14 |
+| Версия | **1.6.17** — стабильная; **1.6.18** подготовлена, ожидает публикации | **1.9.1** — проверяемый кандидат PR #14 |
 | Прошивка | Официальный CrossPoint | Только кастомная YBX Reader |
 | Каталоги | Статические `browse.lists`, совместимые со штатным API | Подключённые провайдеры, «Все», «Все книги», вложенные серии и полки |
 | Дополнительные capabilities | Без `catalog.lists.auth`, `catalog.folders.json`, `stats.native.v1` и `ui.dashboard.v1` | Требует **оба**: `catalog.lists.auth` и `catalog.folders.json` |
@@ -18,19 +18,27 @@
 1. **Stock** — только здесь, в публичном репозитории. Изменения, требующие API YBX Reader, не попадают в `main` и стабильный ZIP для официального CrossPoint. Перед выпуском обязательны `tools/validate_payload.py` и тесты.
 2. **Native** — канонический комплект в исходниках прошивки YBX Reader. Его установщик проверяет required capabilities, `device.json` и согласованность версии. Его нельзя отправлять через обычный Plugin Hub.
 3. Обе редакции пока сохраняют исторический идентификатор `ybx` для совместимости с каталогом/данными на SD. **Они не должны устанавливаться одновременно** и не являются взаимозаменяемыми файлами. При смене прошивки понадобится отдельная миграция с резервной копией.
-4. Версии развиваются независимо. Рост версии stock не означает поддержку Native, и наоборот. Стабильная stock 1.6.13 не заменяет Native 1.9.1.
+4. Версии развиваются независимо. Рост версии stock не означает поддержку Native, и наоборот. Стабильная stock 1.6.17 и подготовленная 1.6.18 не заменяют Native 1.9.1.
 5. Токены, пользовательская конфигурация и прогресс не распространяются вместе с ZIP. При обновлении их нужно сохранять.
 
 ## История экспериментального RC
 
-`v1.7.0-rc.1` был опубликован в репозитории Stock, однако технически **требует модифицированную прошивку** (`catalog.lists.auth`). Он **не является обновлением stock 1.6.13** и не должен сливаться в публичный `main`. Его функцию перенесли в YBX Native 1.9.1: [PR прошивки #14](https://github.com/jhdvp/ybx-crosspoint/pull/14).
+`v1.7.0-rc.1` был опубликован в репозитории Stock, однако технически **требует модифицированную прошивку** (`catalog.lists.auth`). Он **не является обновлением стабильной stock 1.6.17** и не должен сливаться в публичный `main`. Его функцию перенесли в YBX Native 1.9.1: [PR прошивки #14](https://github.com/jhdvp/ybx-crosspoint/pull/14).
 
 ## Выпуск Stock
 
-`python3 tools/validate_payload.py`
+Подготовленная **1.6.18** — только официальный CrossPoint: исправление пагинации
+(`page_size=10` в каталожных URL; `limit=10` на 2.0.0, `limit=11` в старых сборках
+с lookahead). В ней нет Native capabilities, и она не предназначена для кастомной
+YBX Reader. Статус: подготовлена локально, **ещё не опубликована**; публикацию и
+финальный gate выполняет корневой репозиторий. Подробности — [RELEASE-1.6.18.md](RELEASE-1.6.18.md).
 
-`python3 -m unittest discover -s tests -v`
-
-`node --test tests/test_browser_https.mjs tests/test_plugin_lifecycle.mjs`
+```bash
+python3 tools/validate_payload.py --help
+python3 tools/validate_payload.py --canonical <путь к каноническому плагину>
+python3 -m unittest discover -s tests -v
+node --test tests/*.mjs
+python3 tools/build_release_zip.py --output /tmp/YBX-1.6.18.zip
+```
 
 Для Native — отдельные CI, сборки X3/X4 и X4 Pro, QEMU и физическая приёмка.

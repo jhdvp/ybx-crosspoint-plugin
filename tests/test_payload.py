@@ -14,7 +14,7 @@ class PayloadContractTests(unittest.TestCase):
     def test_stock_1614_static_merged_library_and_search(self):
         payload = json.loads((PAYLOAD / "device.json").read_text(encoding="utf-8"))
         manifest = json.loads((PAYLOAD / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "1.6.17")
+        self.assertEqual(manifest["version"], "1.6.18")
         browse = payload["browse"]
         self.assertEqual(browse["format"], "json")
         self.assertEqual(browse["page_size"], 10)
@@ -39,11 +39,37 @@ class PayloadContractTests(unittest.TestCase):
         for entry in browse["lists"]:
             self.assertNotIn("parent", entry)
             self.assertNotIn("id", entry)
-            self.assertIn("v=1.6.17", entry["url"])
+            self.assertIn("v=1.6.18", entry["url"])
         self.assertEqual(payload["token"]["file"], "token.json")
         self.assertEqual(payload["download"]["dest_dir"], "/books/ybx")
         self.assertIn("Bearer {token}", payload["download"]["headers"]["Authorization"])
         self.assertLessEqual((PAYLOAD / "device.json").stat().st_size, 8192)
+
+    def test_1618_catalog_urls_declare_page_size_with_dynamic_limit(self):
+        """1.6.18 declares page_size=10; firmware still chooses limit=10 or 11."""
+        payload = json.loads((PAYLOAD / "device.json").read_text(encoding="utf-8"))
+        manifest = json.loads((PAYLOAD / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["version"], "1.6.18")
+        browse = payload["browse"]
+        self.assertEqual(browse["page_size"], 10)
+        catalog_urls = [browse["url"], browse["search"]["url"]]
+        catalog_urls += [entry["url"] for entry in browse["lists"]]
+        self.assertEqual(len(catalog_urls), 10)
+        for url in catalog_urls:
+            with self.subTest(url=url):
+                self.assertIn("page_size=10", url)
+                # Official firmware substitutes {limit}: 10 on 2.0.0, 11 on
+                # older lookahead builds. The server pagination step is the
+                # declared page_size, so both see ten books per page.
+                self.assertIn("{limit}", url)
+                self.assertIn("v=1.6.18", url)
+        other_urls = [payload["download"]["url"], payload["auth"]["request"]["url"],
+                      payload["auth"]["poll"]["url"]]
+        other_urls += [event["request"]["url"] for event in payload["events"].values()
+                       if "request" in event]
+        for url in other_urls:
+            with self.subTest(url=url):
+                self.assertNotIn("page_size", url)
 
     def test_same_version_drift_is_detected(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -17,8 +17,8 @@ function requestUrl(template, page = 1) {
     .replaceAll('{query}', encodeURIComponent('test')));
 }
 
-test('Stock 1.6.17 exposes all eight exact top-level shelves without Native lists_url', () => {
-  assert.equal(manifest.version, '1.6.17');
+test('Stock 1.6.18 exposes all eight exact top-level shelves without Native lists_url', () => {
+  assert.equal(manifest.version, '1.6.18');
   assert.equal(manifest.mount, 'settings');
   assert.deepEqual(manifest.compatibility.firmware_family, ['crosspoint']);
   assert.equal(manifest.compatibility.plugin_api_min, 1);
@@ -41,10 +41,15 @@ test('Every Stock section paginates with the firmware lookahead, not Native fold
     assert.equal(first.searchParams.get('page'), '1', list.title);
     assert.equal(second.searchParams.get('page'), '2', list.title);
     // Official CrossPoint PluginCatalogActivity.cpp substitutes pageSize+1.
-    // The API then advances by pageSize, keeping the extra row as a lookahead.
+    // Older lookahead builds send limit=11; CrossPoint 2.0.0 sends limit=10.
+    // 1.6.18 declares page_size=10 so the server steps by ten in both cases.
     assert.equal(first.searchParams.get('limit'), '11', list.title);
     assert.equal(second.searchParams.get('limit'), '11', list.title);
-    assert.equal(first.searchParams.get('v'), '1.6.17', list.title);
+    assert.equal(first.searchParams.get('page_size'), '10', list.title);
+    assert.equal(second.searchParams.get('page_size'), '10', list.title);
+    assert.ok(list.url.includes('page_size=10'), list.title);
+    assert.ok(list.url.includes('{limit}'), list.title);
+    assert.equal(first.searchParams.get('v'), '1.6.18', list.title);
     assert.equal(list.folder_url, undefined, list.title);
   }
   assert.equal(browse.fields.title, 'title');
@@ -70,6 +75,15 @@ test('Mixed all-books and provider catalogs use the proper Stock-compatible rout
   const search = requestUrl(browse.search.url);
   assert.equal(search.searchParams.get('q'), 'test');
   assert.equal(search.searchParams.get('kind'), 'all');
+  assert.equal(search.searchParams.get('page_size'), '10');
+  const primary = requestUrl(browse.url);
+  assert.equal(primary.searchParams.get('page_size'), '10');
+  assert.equal(primary.searchParams.get('kind'), 'reading');
+  // Auth, events and EPUB download carry no pagination marker.
+  assert.equal(new URL(stock.download.url).searchParams.get('page_size'), null);
+  for (const event of Object.values(stock.events)) {
+    assert.equal(new URL(event.request.url).searchParams.get('page_size'), null);
+  }
 });
 
 test('Stock needs QR device-code auth; no Native-only capabilities or URLs', () => {

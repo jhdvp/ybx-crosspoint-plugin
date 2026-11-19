@@ -1029,6 +1029,15 @@ CrossPoint.registerPlugin(async (container, api) => {
     }
     return device;
   }
+  // All settings controls read-modify-write the same device.json. Serialize
+  // those operations and always read the latest file inside the queue, so a
+  // late server/sleep/sort write cannot restore stale URLs or handlers.
+  let deviceWriteQueue = Promise.resolve();
+  function queueDeviceWrite(task) {
+    const run = deviceWriteQueue.then(task, task);
+    deviceWriteQueue = run.catch(() => {});
+    return run;
+  }
   // ── Зеркало сервера в device.json ───────────────────────────────────────
   // Прошивка читает каталог, поиск, книги, QR-вход, события и адрес экрана
   // сна прямо из статического device.json. Выбор «Сервер» должен двигать и
@@ -1073,11 +1082,13 @@ CrossPoint.registerPlugin(async (container, api) => {
   }
   // Writes only when an address actually moves: no flash wear on page open.
   async function rewriteDeviceHostsOnDisk(target) {
-    const device = await readSleepDevice();
-    if (!rewriteDeviceHosts(device, target)) return false;
-    await api.writeFile(SLEEP_DEVICE, sleepBytes(new TextEncoder().encode(
-      JSON.stringify(device, null, 2) + '\n')));
-    return true;
+    return queueDeviceWrite(async () => {
+      const device = await readSleepDevice();
+      if (!rewriteDeviceHosts(device, target)) return false;
+      await api.writeFile(SLEEP_DEVICE, sleepBytes(new TextEncoder().encode(
+        JSON.stringify(device, null, 2) + '\n')));
+      return true;
+    });
   }
   // ── Сортировка в адресах device.json ────────────────────────────────────
   // Стоковая прошивка читает порядок из адреса каждой полки в device.json.
@@ -1130,11 +1141,13 @@ CrossPoint.registerPlugin(async (container, api) => {
   }
   // Тот же принцип, что у зеркал: пишем SD только когда адрес реально меняется.
   async function rewriteDeviceSortOnDisk(mode) {
-    const device = await readSleepDevice();
-    if (!rewriteDeviceSort(device, mode)) return false;
-    await api.writeFile(SLEEP_DEVICE, sleepBytes(new TextEncoder().encode(
-      JSON.stringify(device, null, 2) + '\n')));
-    return true;
+    return queueDeviceWrite(async () => {
+      const device = await readSleepDevice();
+      if (!rewriteDeviceSort(device, mode)) return false;
+      await api.writeFile(SLEEP_DEVICE, sleepBytes(new TextEncoder().encode(
+        JSON.stringify(device, null, 2) + '\n')));
+      return true;
+    });
   }
   const sleepHandlerOn = (device) => Boolean(device?.events?.['sleep.enter']?.download);
   async function saveSleepPreference(enabled) {
@@ -1145,21 +1158,24 @@ CrossPoint.registerPlugin(async (container, api) => {
     const pref = await readJson(SLEEP_PREFERENCE);
     return typeof pref?.enabled === 'boolean' ? pref.enabled : null;
   }
-  async function writeSleepHandler(device, enabled) {
-    const v = handlerVersion(device);
-    // Off means no sleep.enter handler at all: no network work before sleep.
-    if (enabled) device.events['sleep.enter'] = { download: sleepDownloadHandler(v) };
-    else delete device.events['sleep.enter'];
-    // The new handler carries the main host; move it to the chosen server in
-    // the same write, so a reader that sleeps before the page is reopened
-    // does not go to a host the user cannot reach.
-    rewriteDeviceHosts(device, mirrorRequest.effectiveTarget());
-    await api.writeFile(SLEEP_DEVICE, sleepBytes(new TextEncoder().encode(
-      JSON.stringify(device, null, 2) + '\n')));
+  async function writeSleepHandler(enabled) {
+    return queueDeviceWrite(async () => {
+      const device = await readSleepDevice();
+      const v = handlerVersion(device);
+      // Off means no sleep.enter handler at all: no network work before sleep.
+      if (enabled) device.events['sleep.enter'] = { download: sleepDownloadHandler(v) };
+      else delete device.events['sleep.enter'];
+      // The new handler carries the main host; move it to the chosen server in
+      // the same write, so a reader that sleeps before the page is reopened
+      // does not go to a host the user cannot reach.
+      rewriteDeviceHosts(device, mirrorRequest.effectiveTarget());
+      await api.writeFile(SLEEP_DEVICE, sleepBytes(new TextEncoder().encode(
+        JSON.stringify(device, null, 2) + '\n')));
+    });
   }
   // Включение: сначала сохраняем чужую картинку, потом просим сервер рисовать,
   // и только затем отдаём прошивке скачивать карточку в слот.
-  async function installSleepCard(device) {
+  async function installSleepCard() {
     const slot = await readSleepFile(SLEEP_SLOT);
     if (slot && !ownsSleepSlot(slot)) {
       if (slot.length > SLEEP_BACKUP_LIMIT) {
@@ -1167,13 +1183,13 @@ CrossPoint.registerPlugin(async (container, api) => {
       }
       await api.writeFile(SLEEP_BACKUP, sleepBytes(slot));
     }
-    await writeSleepHandler(device, true);
+    await writeSleepHandler(true);
   }
 
   // Выключение: снимаем обработчик, затем возвращаем слот. Трогаем слот только
   // если в нём по-прежнему наша карточка: пользователь мог положить туда своё.
-  async function removeSleepCard(device) {
-    await writeSleepHandler(device, false);
+  async function removeSleepCard() {
+    await writeSleepHandler(false);
     const slot = await readSleepFile(SLEEP_SLOT);
     if (!slot || !ownsSleepSlot(slot)) return 'kept';
     const backup = await readSleepFile(SLEEP_BACKUP);
@@ -1222,14 +1238,13 @@ CrossPoint.registerPlugin(async (container, api) => {
   }
 
   async function setSleepCard(enabled, sleepMode) {
-    const device = await readSleepDevice();
     if (enabled) {
-      await installSleepCard(device);
+      await installSleepCard();
       if (sleepMode !== CARD_MODE) await writeSettings({ sleepScreen: CARD_MODE });
       await saveSleepPreference(true);
       return 'on';
     }
-    const outcome = await removeSleepCard(device);
+    const outcome = await removeSleepCard();
     // Прежний режим трогаем только если он показывал карточку: «Тёмный»,
     // «Светлый» и выбор пользователя оставляем как есть.
     if (sleepMode === CARD_MODE || sleepMode === COVER_CUSTOM_MODE) {
@@ -1257,11 +1272,11 @@ CrossPoint.registerPlugin(async (container, api) => {
     const slot = await readSleepFile(SLEEP_SLOT);
     if (sleepMode === CARD_MODE &&
         (pref === true || (pref === null && slot && ownsSleepSlot(slot)))) {
-      await installSleepCard(device);
+      await installSleepCard();
       await saveSleepPreference(true);
       return true;
     }
-    if (slot && ownsSleepSlot(slot)) await removeSleepCard(device);
+    if (slot && ownsSleepSlot(slot)) await removeSleepCard();
     if (pref === true) await saveSleepPreference(false);
     return false;
   }
@@ -1280,12 +1295,6 @@ CrossPoint.registerPlugin(async (container, api) => {
 
   async function loadProfile() {
     const versionText = await version();
-    // Обновление плагина или Plugin Hub возвращают device.json без sort:
-    // страница сверяет адреса с выбором читателя и пишет только при
-    // расхождении, чтобы не стирать карту flash при каждом открытии.
-    try {
-      await rewriteDeviceSortOnDisk(sortChoice);
-    } catch (error) { /* device.json may be unavailable; do not block page */ }
     settingsWrap.replaceChildren();
     const settings = section('Настройки', versionText ? 'v' + versionText : '');
     const rows = document.createElement('div');
@@ -2289,7 +2298,8 @@ CrossPoint.registerPlugin(async (container, api) => {
       button.setAttribute('aria-label', 'Сортировка: ' + label);
       button.onclick = async () => {
         if (sortChoice === mode) return;
-        button.disabled = true;
+        // Two concurrent choices would race the preference and device writes.
+        for (const other of buttons) other.disabled = true;
         try {
           await saveSortChoice(mode);
           sortChoice = mode;
@@ -2307,7 +2317,7 @@ CrossPoint.registerPlugin(async (container, api) => {
         } catch (error) {
           message('Не удалось сохранить сортировку: ' + error.message, 'err');
         } finally {
-          button.disabled = false;
+          for (const other of buttons) other.disabled = false;
         }
       };
       buttons.push(button);
@@ -2344,6 +2354,12 @@ CrossPoint.registerPlugin(async (container, api) => {
     await ensureDeviceConfig();
     try {
       await rewriteDeviceHostsOnDisk(mirrorRequest.effectiveTarget());
+    } catch (error) { /* device.json may be unavailable; do not block page */ }
+    // A plugin update or Plugin Hub returns device.json without sort. Retry
+    // the reconciliation here, before the auth/profile gates, so a failure on
+    // the previous page does not depend on a successful summary request.
+    try {
+      await rewriteDeviceSortOnDisk(sortChoice);
     } catch (error) { /* device.json may be unavailable; do not block page */ }
     token = await readPluginToken();
     if (!token || !token.access_token) {

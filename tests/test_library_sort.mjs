@@ -16,13 +16,14 @@ function slice(begin, end) {
 // The preference constants and the address rewrite are taken from the shipped
 // plugin, so a scenario cannot drift from what runs on the reader.
 const runtime = slice('  const SORT_PREFERENCE =', '\n  // These endpoints belong')
+  + slice('  let deviceWriteQueue =', '\n  // ── Зеркало сервера в device.json')
   + slice('  const DEVICE_HOST_PAIRS =', '\n  // ── Сортировка в адресах device.json')
   + slice('  const CATALOG_PATHS =', '\n  const sleepHandlerOn =');
 
 function sorter({ sort = { mode: 'default' }, writeFails = false } = {}) {
   const writes = [];
   const ctx = vm.createContext({
-    URL, JSON, TextEncoder, String, Boolean, Array, Object, Number, Error,
+    URL, JSON, TextEncoder, String, Boolean, Array, Object, Number, Error, Promise,
     DIR: '/.crosspoint/plugins/ybx',
     SLEEP_DEVICE: '/.crosspoint/plugins/ybx/device.json',
     readJson: async () => sort,

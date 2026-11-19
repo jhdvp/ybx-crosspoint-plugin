@@ -364,9 +364,9 @@ CrossPoint.registerPlugin(async (container, api) => {
   // остаются. Прошивка подставляет в адреса только {page}, {limit} и {query},
   // поэтому намерение переносится в device.json как параметр sort.
   const SORT_PREFERENCE = DIR + '/sort-preference.json';
-  const SORT_MODES = ['default', 'title', 'added'];
-  const SORT_CHOICE_LABELS = [['default', 'По умолчанию'], ['title', 'По названию'],
-    ['added', 'По дате добавления']];
+  const SORT_MODES = ['default', 'title', 'added', 'author', 'progress'];
+  const SORT_CHOICE_LABELS = [['default', 'Как на полке OPDS'], ['title', 'По названию'],
+    ['added', 'По дате добавления'], ['author', 'По автору'], ['progress', 'По прогрессу']];
   const saveSortChoice = (mode) => writeJson(SORT_PREFERENCE, { mode, schema: 1 });
   const readSortChoice = async () => {
     const pref = await readJson(SORT_PREFERENCE);
@@ -1080,12 +1080,7 @@ CrossPoint.registerPlugin(async (container, api) => {
     return true;
   }
   // ── Сортировка в адресах device.json ────────────────────────────────────
-  // Стоковая прошивка не рисует меню сортировки и не знает плейсхолдера
-  // {sort}: на каждый запрос каталога она читает только сами адреса из
-  // device.json. Значит выбор живёт там: «По названию» и «По дате добавления»
-  // становятся sort=title и sort=added, а «По умолчанию» — адрес без sort,
-  // ровно такой, как у плагина 1.6.18. Сервер применяет sort до деления на
-  // страницы; релевантность поиска и порядок серий он держит сам.
+  // Стоковая прошивка читает порядок из адреса каждой полки в device.json.
   const CATALOG_PATHS = ['/api/v1/crosspoint/catalog', '/api/v1/crosspoint/catalog/all',
     '/api/v1/crosspoint/wb/catalog', '/api/v1/crosspoint/litres/catalog'];
   // Правим текст шаблона, а не url.search: {page}, {limit} и {query} обязаны
@@ -1095,7 +1090,7 @@ CrossPoint.registerPlugin(async (container, api) => {
     if (mark === -1) return template;
     const pairs = template.slice(mark + 1).split('&')
       .filter((pair) => pair && pair !== 'sort' && !pair.startsWith('sort='));
-    if (mode !== 'default') pairs.push('sort=' + mode);
+    if (mode) pairs.push('sort=' + (mode === 'default' ? 'opds' : mode));
     return template.slice(0, mark) + (pairs.length ? '?' + pairs.join('&') : '');
   }
   const isYbxCatalogUrl = (template) => {
@@ -1120,13 +1115,14 @@ CrossPoint.registerPlugin(async (container, api) => {
     };
     browse.url = apply(browse.url, mode);
     if (browse.search && typeof browse.search === 'object') {
-      browse.search.url = apply(browse.search.url, 'default');
+      browse.search.url = apply(browse.search.url, null);
     }
     if (Array.isArray(browse.lists)) {
       for (const entry of browse.lists) {
         if (!entry || typeof entry !== 'object') continue;
-        const order = entry.id === 'all-by-title' ? 'title'
-          : entry.id === 'all-by-added' ? 'added' : mode;
+        const fixed = typeof entry.id === 'string' && entry.id.startsWith('all-by-')
+          ? entry.id.slice(7) : null;
+        const order = fixed && SORT_MODES.includes(fixed) ? fixed : mode;
         entry.url = apply(entry.url, order);
       }
     }
@@ -2278,12 +2274,7 @@ CrossPoint.registerPlugin(async (container, api) => {
     title.textContent = 'Сортировка книг в каталоге';
     const hint = document.createElement('p');
     hint.className = 'ybx-hint';
-    hint.textContent = 'По названию и По дате добавления сервер получает как sort=title и '
-      + 'sort=added и упорядочивает полку до деления на страницы; дата добавления — '
-      + 'тот же порядок, что в OPDS (сначала добавленные позже). По умолчанию — прежний '
-      + 'порядок «недавно открытые», параметр sort не отправляется вовсе. Поиск и '
-      + 'последовательность серий сортировке не поддаются. Выбор лежит на SD-карте и '
-      + 'переживает обновление плагина; после смены переоткройте Home → Plugins → YBX.';
+    hint.textContent = 'Выберите порядок книг и заново откройте каталог YBX на ридере.';
     const actions = document.createElement('div');
     actions.className = 'ybx-actions';
     const buttons = [];

@@ -24,12 +24,12 @@ class PayloadContractTests(unittest.TestCase):
         self.assertEqual([v["title"] for v in browse["lists"]], [
             "Все книги", "Читаю", "Хочу прочитать", "Прочитано",
             "Загруженные", "Яндекс Книги", "WB Книги", "ЛитРес",
-            "Все книги · по названию", "Все книги · по добавлению"])
+            "Все книги · по названию", "Все книги · по добавлению", "Все книги · по автору", "Все книги · по прогрессу"])
         base = "https://my.ybx.app/api/v1/crosspoint/"
         self.assertEqual([v["url"].split("?")[0] for v in browse["lists"]], [
             base+"catalog/all", base+"catalog/all", base+"catalog/all",
             base+"catalog/all", base+"catalog/all", base+"catalog",
-            base+"wb/catalog", base+"litres/catalog", base+"catalog/all", base+"catalog/all",
+            base+"wb/catalog", base+"litres/catalog", *[base+"catalog/all"] * 4,
         ])
         self.assertEqual(
             [v["url"].split("kind=")[1].split("&")[0] for v in browse["lists"][:5]],
@@ -40,7 +40,7 @@ class PayloadContractTests(unittest.TestCase):
         for entry in browse["lists"]:
             self.assertNotIn("parent", entry)
             if "id" in entry:
-                self.assertIn(entry["id"], ("all-by-title", "all-by-added"))
+                self.assertIn(entry["id"], ("all-by-title", "all-by-added", "all-by-author", "all-by-progress"))
             self.assertIn("v=1.6.18", entry["url"])
         self.assertEqual(payload["token"]["file"], "token.json")
         self.assertEqual(payload["download"]["dest_dir"], "/books/ybx")
@@ -56,7 +56,7 @@ class PayloadContractTests(unittest.TestCase):
         self.assertEqual(browse["page_size"], 10)
         catalog_urls = [browse["url"], browse["search"]["url"]]
         catalog_urls += [entry["url"] for entry in browse["lists"]]
-        self.assertEqual(len(catalog_urls), 12)
+        self.assertEqual(len(catalog_urls), 14)
         for url in catalog_urls:
             with self.subTest(url=url):
                 self.assertIn("page_size=10", url)

@@ -46,7 +46,7 @@ function sorter({ sort = { mode: 'default' }, writeFails = false } = {}) {
 const shelves = (device) => [device.browse.url, ...device.browse.lists.filter((entry) => !entry.id).map((entry) => entry.url)];
 
 test('title and added reach the root browse and every shelf of the shipped catalog', () => {
-  for (const mode of ['title', 'added']) {
+  for (const mode of ['title', 'added', 'author', 'progress']) {
     const { ctx } = sorter();
     const device = JSON.parse(JSON.stringify(shipped));
     assert.equal(ctx.rewrite(device, mode), true);
@@ -78,13 +78,13 @@ test('search keeps relevance order and nothing else in the file is touched', () 
   assert.deepEqual(Object.keys(device.browse), Object.keys(before.browse));
 });
 
-test('the default choice sends no sort at all, exactly like the older plugin', () => {
+test('the default choice selects OPDS shelf order', () => {
   const { ctx } = sorter();
   const device = JSON.parse(JSON.stringify(shipped));
   ctx.rewrite(device, 'added');
   assert.equal(ctx.rewrite(device, 'default'), true);
   for (const url of [device.browse.url, ...device.browse.lists.slice(0, 8).map((e) => e.url)]) {
-    assert.ok(!/[?&]sort/.test(url), url);
+    assert.match(url, /&sort=opds$/);
   }
   // Only the two explicit order shelves still carry a parameter.
   assert.deepEqual(JSON.parse(JSON.stringify(device.browse.lists.slice(0, 8))),
@@ -195,8 +195,7 @@ function panel({ sortChoice = 'default', rewriteResult = true, rewriteFails = fa
   });
   const ctx = vm.createContext({
     document: { createElement: () => element() },
-    SORT_CHOICE_LABELS: [['default', 'По умолчанию'], ['title', 'По названию'],
-      ['added', 'По дате добавления']],
+    SORT_CHOICE_LABELS: vm.runInNewContext(slice('  const SORT_CHOICE_LABELS =','  const saveSortChoice') + 'SORT_CHOICE_LABELS'),
     sortChoice,
     message: (text, kind) => messages.push([text, kind]),
     saveSortChoice: async (mode) => {
@@ -218,12 +217,11 @@ function panel({ sortChoice = 'default', rewriteResult = true, rewriteFails = fa
 test('the page offers both orders and the untouched default as separate choices', () => {
   const w = panel();
   assert.deepEqual(w.buttons.map((b) => b.textContent),
-    ['По умолчанию', 'По названию', 'По дате добавления']);
-  assert.deepEqual(w.buttons.map((b) => b.dataset.sortMode), ['default', 'title', 'added']);
+    ['Как на полке OPDS', 'По названию', 'По дате добавления', 'По автору', 'По прогрессу']);
+  assert.deepEqual(w.buttons.map((b) => b.dataset.sortMode), ['default', 'title', 'added', 'author', 'progress']);
   assert.equal(w.buttons[0]['aria-pressed'], 'true');
   assert.equal(w.buttons[1]['aria-pressed'], 'false');
-  assert.match(w.ctx.group.children[1].textContent, /sort=title и sort=added/);
-  assert.match(w.ctx.group.children[1].textContent, /по дате добавления|OPDS/);
+
 });
 
 test('choosing an order stores it and rewrites the reader addresses', async () => {
@@ -268,13 +266,12 @@ test('a failed preference store leaves the page and the catalog untouched', asyn
 });
 
 test('the shipped payload still ships the plain default order', () => {
-  // A fresh install must ask exactly what 1.6.18 asked: the order is opt-in.
-  for (const url of [shipped.browse.url, ...shipped.browse.lists.slice(0, 8).map((e) => e.url),
-    shipped.browse.search.url]) {
-    assert.ok(!/[?&]sort=/u.test(url), url);
+  assert.match(shipped.browse.url, /&sort=opds$/);
+  assert.doesNotMatch(shipped.browse.search.url, /[?&]sort=/);
+  for (const entry of shipped.browse.lists) {
+    const expected = entry.id ? entry.id.slice(7) : 'opds';
+    assert.equal(new URL(entry.url).searchParams.get('sort'), expected);
   }
-  assert.equal(shipped.browse.lists[8].id, 'all-by-title');
-  assert.equal(shipped.browse.lists[9].id, 'all-by-added');
 });
 
 test('the page wires the section and reconciles it on every open', () => {

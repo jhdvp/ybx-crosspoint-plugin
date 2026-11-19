@@ -7,7 +7,7 @@
   },
   "browse": {
     "format": "json",
-    "url": "https://my.ybx.app/api/v1/crosspoint/catalog/all?kind=reading&page={page}&limit={limit}&page_size=10&v=1.6.18",
+    "url": "https://my.ybx.app/api/v1/crosspoint/catalog/all?kind=reading&page={page}&limit={limit}&page_size=10&v=1.6.19&sort=opds",
     "method": "GET",
     "headers": {
       "Authorization": "Bearer {token}"
@@ -23,45 +23,65 @@
       "detail_author": "author"
     },
     "search": {
-      "url": "https://my.ybx.app/api/v1/crosspoint/catalog/all?kind=all&q={query}&page={page}&limit={limit}&page_size=10&v=1.6.18"
+      "url": "https://my.ybx.app/api/v1/crosspoint/catalog/all?kind=all&q={query}&page={page}&limit={limit}&page_size=10&v=1.6.19"
     },
     "lists": [
       {
         "title": "Все книги",
-        "url": "https://my.ybx.app/api/v1/crosspoint/catalog/all?kind=all&page={page}&limit={limit}&page_size=10&v=1.6.18"
+        "url": "https://my.ybx.app/api/v1/crosspoint/catalog/all?kind=all&page={page}&limit={limit}&page_size=10&v=1.6.19&sort=opds"
       },
       {
         "title": "Читаю",
-        "url": "https://my.ybx.app/api/v1/crosspoint/catalog/all?kind=reading&page={page}&limit={limit}&page_size=10&v=1.6.18"
+        "url": "https://my.ybx.app/api/v1/crosspoint/catalog/all?kind=reading&page={page}&limit={limit}&page_size=10&v=1.6.19&sort=opds"
       },
       {
         "title": "Хочу прочитать",
-        "url": "https://my.ybx.app/api/v1/crosspoint/catalog/all?kind=to_read&page={page}&limit={limit}&page_size=10&v=1.6.18"
+        "url": "https://my.ybx.app/api/v1/crosspoint/catalog/all?kind=to_read&page={page}&limit={limit}&page_size=10&v=1.6.19&sort=opds"
       },
       {
         "title": "Прочитано",
-        "url": "https://my.ybx.app/api/v1/crosspoint/catalog/all?kind=done&page={page}&limit={limit}&page_size=10&v=1.6.18"
+        "url": "https://my.ybx.app/api/v1/crosspoint/catalog/all?kind=done&page={page}&limit={limit}&page_size=10&v=1.6.19&sort=opds"
       },
       {
         "title": "Загруженные",
-        "url": "https://my.ybx.app/api/v1/crosspoint/catalog/all?kind=uploaded&page={page}&limit={limit}&page_size=10&v=1.6.18"
+        "url": "https://my.ybx.app/api/v1/crosspoint/catalog/all?kind=uploaded&page={page}&limit={limit}&page_size=10&v=1.6.19&sort=opds"
       },
       {
         "title": "Яндекс Книги",
-        "url": "https://my.ybx.app/api/v1/crosspoint/catalog?shelf=all&page={page}&limit={limit}&page_size=10&v=1.6.18"
+        "url": "https://my.ybx.app/api/v1/crosspoint/catalog?shelf=all&page={page}&limit={limit}&page_size=10&v=1.6.19&sort=opds"
       },
       {
         "title": "WB Книги",
-        "url": "https://my.ybx.app/api/v1/crosspoint/wb/catalog?page={page}&limit={limit}&stock=1&page_size=10&v=1.6.18"
+        "url": "https://my.ybx.app/api/v1/crosspoint/wb/catalog?page={page}&limit={limit}&stock=1&page_size=10&v=1.6.19&sort=opds"
       },
       {
         "title": "ЛитРес",
-        "url": "https://my.ybx.app/api/v1/crosspoint/litres/catalog?page={page}&limit={limit}&stock=1&page_size=10&v=1.6.18"
+        "url": "https://my.ybx.app/api/v1/crosspoint/litres/catalog?page={page}&limit={limit}&stock=1&page_size=10&v=1.6.19&sort=opds"
+      },
+      {
+        "id": "all-by-title",
+        "title": "Все книги · по названию",
+        "url": "https://my.ybx.app/api/v1/crosspoint/catalog/all?kind=all&page={page}&limit={limit}&page_size=10&v=1.6.19&sort=title"
+      },
+      {
+        "id": "all-by-added",
+        "title": "Все книги · по добавлению",
+        "url": "https://my.ybx.app/api/v1/crosspoint/catalog/all?kind=all&page={page}&limit={limit}&page_size=10&v=1.6.19&sort=added"
+      },
+      {
+        "id": "all-by-author",
+        "title": "Все книги · по автору",
+        "url": "https://my.ybx.app/api/v1/crosspoint/catalog/all?kind=all&page={page}&limit={limit}&page_size=10&v=1.6.19&sort=author"
+      },
+      {
+        "id": "all-by-progress",
+        "title": "Все книги · по прогрессу",
+        "url": "https://my.ybx.app/api/v1/crosspoint/catalog/all?kind=all&page={page}&limit={limit}&page_size=10&v=1.6.19&sort=progress"
       }
     ]
   },
   "download": {
-    "url": "https://my.ybx.app/api/v1/crosspoint/books/{id}/download?v=1.6.18",
+    "url": "https://my.ybx.app/api/v1/crosspoint/books/{id}/download?v=1.6.19",
     "method": "GET",
     "headers": {
       "Authorization": "Bearer {token}"
@@ -103,7 +123,7 @@
     "reader.open": {
       "request": {
         "method": "POST",
-        "url": "https://my.ybx.app/api/v1/crosspoint/events?v=1.6.18",
+        "url": "https://my.ybx.app/api/v1/crosspoint/events?v=1.6.19",
         "headers": {
           "Authorization": "Bearer {token}",
           "Content-Type": "application/json"
@@ -114,7 +134,7 @@
     "reader.exit": {
       "request": {
         "method": "POST",
-        "url": "https://my.ybx.app/api/v1/crosspoint/events?v=1.6.18",
+        "url": "https://my.ybx.app/api/v1/crosspoint/events?v=1.6.19",
         "headers": {
           "Authorization": "Bearer {token}",
           "Content-Type": "application/json"
@@ -125,7 +145,7 @@
     "reader.session": {
       "request": {
         "method": "POST",
-        "url": "https://my.ybx.app/api/v1/crosspoint/events?v=1.6.18",
+        "url": "https://my.ybx.app/api/v1/crosspoint/events?v=1.6.19",
         "headers": {
           "Authorization": "Bearer {token}",
           "Content-Type": "application/json"
@@ -137,7 +157,7 @@
     "book.downloaded": {
       "request": {
         "method": "POST",
-        "url": "https://my.ybx.app/api/v1/crosspoint/events?v=1.6.18",
+        "url": "https://my.ybx.app/api/v1/crosspoint/events?v=1.6.19",
         "headers": {
           "Authorization": "Bearer {token}",
           "Content-Type": "application/json"

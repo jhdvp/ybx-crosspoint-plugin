@@ -228,7 +228,7 @@ test('the page offers «Сервер»: Авто / Основной / Европ
   // The control lives with the other setting groups and remains available
   // signed out, because a blocked origin breaks the first steps of pairing.
   assert.match(source,
-    /settings\.append\(buildServerSection\(\), kosyncGroup, metadataGroup, clippingGroup\)/);
+    /settings\.append\(buildServerSection\(\), buildSortSection\(\), kosyncGroup, metadataGroup, clippingGroup\)/);
   assert.match(source, /settingsWrap\.appendChild\(buildServerSection\(\)\)/);
   // The saved choice is applied to the mirror wrapper before any other request.
   assert.match(source,
@@ -353,21 +353,25 @@ test('saved PT choice and Portuguese KOSync hosts are recognized', async () => {
 test('a new sleep handler follows the chosen server and mirrored handlers stay recognised', async () => {
   const start = source.indexOf('  const isOurSleepUrl =');
   const end = source.indexOf('  // Панели, для которых сервер рисует карточку');
+  const queueStart = source.indexOf('  let deviceWriteQueue =');
+  const queueEnd = source.indexOf('  // ── Зеркало сервера в device.json', queueStart);
   const pairs = source.indexOf('  const DEVICE_HOST_PAIRS =');
   const rewriteEnd = source.indexOf('  // Writes only when an address actually moves');
   const writeStart = source.indexOf('  async function writeSleepHandler');
   const writeEnd = source.indexOf('  // Включение: сначала сохраняем');
   const written = [];
-  const ctx = vm.createContext({ URL, JSON, TextEncoder, btoa, String, Boolean, API: 'https://my.ybx.app',
+  let device = { events: {} };
+  const ctx = vm.createContext({ URL, JSON, TextEncoder, btoa, String, Boolean, Promise, API: 'https://my.ybx.app',
     SLEEP_SLOT: '/sleep.bmp', SLEEP_DEVICE: '/device.json', handlerVersion: () => '1.6.17',
     mirrorRequest: { effectiveTarget: () => 'pt' },
+    readSleepDevice: async () => device,
     sleepBytes: (bytes) => bytes, api: { writeFile: async (path, bytes) => written.push([path, bytes]) } });
-  vm.runInContext(source.slice(start, end) + source.slice(pairs, rewriteEnd) + source.slice(writeStart, writeEnd)
+  vm.runInContext(source.slice(queueStart, queueEnd) + source.slice(start, end)
+    + source.slice(pairs, rewriteEnd) + source.slice(writeStart, writeEnd)
     + '\nglobalThis.write = writeSleepHandler; globalThis.ours = isOurSleepUrl;'
     + 'globalThis.target = sleepHostTarget; globalThis.rewrite = rewriteDeviceHosts;'
     + 'globalThis.handler = sleepDownloadHandler;', ctx);
-  const device = { events: {} };
-  await ctx.write(device, true);
+  await ctx.write(true);
   assert.match(device.events['sleep.enter'].download.url, /^https:\/\/pmy\.ybx\.app\/api\/v1\/crosspoint\/sleep-image\?/);
   assert.equal(written.length, 1);
   for (const host of ['my', 'emy', 'pmy']) {

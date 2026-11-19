@@ -14,7 +14,7 @@ class PayloadContractTests(unittest.TestCase):
     def test_stock_1614_static_merged_library_and_search(self):
         payload = json.loads((PAYLOAD / "device.json").read_text(encoding="utf-8"))
         manifest = json.loads((PAYLOAD / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "1.6.18")
+        self.assertEqual(manifest["version"], "1.6.19")
         browse = payload["browse"]
         self.assertEqual(browse["format"], "json")
         self.assertEqual(browse["page_size"], 10)
@@ -23,38 +23,40 @@ class PayloadContractTests(unittest.TestCase):
         self.assertNotIn("folder_url", browse["fields"])
         self.assertEqual([v["title"] for v in browse["lists"]], [
             "Все книги", "Читаю", "Хочу прочитать", "Прочитано",
-            "Загруженные", "Яндекс Книги", "WB Книги", "ЛитРес"])
+            "Загруженные", "Яндекс Книги", "WB Книги", "ЛитРес",
+            "Все книги · по названию", "Все книги · по добавлению", "Все книги · по автору", "Все книги · по прогрессу"])
         base = "https://my.ybx.app/api/v1/crosspoint/"
         self.assertEqual([v["url"].split("?")[0] for v in browse["lists"]], [
             base+"catalog/all", base+"catalog/all", base+"catalog/all",
             base+"catalog/all", base+"catalog/all", base+"catalog",
-            base+"wb/catalog", base+"litres/catalog",
+            base+"wb/catalog", base+"litres/catalog", *[base+"catalog/all"] * 4,
         ])
         self.assertEqual(
             [v["url"].split("kind=")[1].split("&")[0] for v in browse["lists"][:5]],
             ["all", "reading", "to_read", "done", "uploaded"])
         self.assertIn("/catalog/all?kind=all&q={query}&", browse["search"]["url"])
-        self.assertIn("&stock=1", browse["lists"][-1]["url"])
-        self.assertIn("&stock=1", browse["lists"][-2]["url"])
+        self.assertIn("&stock=1", browse["lists"][7]["url"])
+        self.assertIn("&stock=1", browse["lists"][6]["url"])
         for entry in browse["lists"]:
             self.assertNotIn("parent", entry)
-            self.assertNotIn("id", entry)
-            self.assertIn("v=1.6.18", entry["url"])
+            if "id" in entry:
+                self.assertIn(entry["id"], ("all-by-title", "all-by-added", "all-by-author", "all-by-progress"))
+            self.assertIn("v=1.6.19", entry["url"])
         self.assertEqual(payload["token"]["file"], "token.json")
         self.assertEqual(payload["download"]["dest_dir"], "/books/ybx")
         self.assertIn("Bearer {token}", payload["download"]["headers"]["Authorization"])
         self.assertLessEqual((PAYLOAD / "device.json").stat().st_size, 8192)
 
     def test_1618_catalog_urls_declare_page_size_with_dynamic_limit(self):
-        """1.6.18 declares page_size=10; firmware still chooses limit=10 or 11."""
+        """1.6.19 declares page_size=10; firmware still chooses limit=10 or 11."""
         payload = json.loads((PAYLOAD / "device.json").read_text(encoding="utf-8"))
         manifest = json.loads((PAYLOAD / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "1.6.18")
+        self.assertEqual(manifest["version"], "1.6.19")
         browse = payload["browse"]
         self.assertEqual(browse["page_size"], 10)
         catalog_urls = [browse["url"], browse["search"]["url"]]
         catalog_urls += [entry["url"] for entry in browse["lists"]]
-        self.assertEqual(len(catalog_urls), 10)
+        self.assertEqual(len(catalog_urls), 14)
         for url in catalog_urls:
             with self.subTest(url=url):
                 self.assertIn("page_size=10", url)
@@ -62,7 +64,7 @@ class PayloadContractTests(unittest.TestCase):
                 # older lookahead builds. The server pagination step is the
                 # declared page_size, so both see ten books per page.
                 self.assertIn("{limit}", url)
-                self.assertIn("v=1.6.18", url)
+                self.assertIn("v=1.6.19", url)
         other_urls = [payload["download"]["url"], payload["auth"]["request"]["url"],
                       payload["auth"]["poll"]["url"]]
         other_urls += [event["request"]["url"] for event in payload["events"].values()

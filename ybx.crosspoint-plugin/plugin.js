@@ -359,6 +359,19 @@ CrossPoint.registerPlugin(async (container, api) => {
     const pref = await readJson(SERVER_PREFERENCE);
     return SERVER_MODES.includes(pref?.mode) ? pref.mode : 'auto';
   };
+  // Сортировка каталога — намерение читателя, которое переживает обновление
+  // плагина: Hub перезаписывает device.json, а отдельные файлы предпочтений
+  // остаются. Прошивка подставляет в адреса только {page}, {limit} и {query},
+  // поэтому намерение переносится в device.json как параметр sort.
+  const SORT_PREFERENCE = DIR + '/sort-preference.json';
+  const SORT_MODES = ['default', 'title', 'added', 'author', 'progress'];
+  const SORT_CHOICE_LABELS = [['default', 'Как на полке OPDS'], ['title', 'По названию'],
+    ['added', 'По дате добавления'], ['author', 'По автору'], ['progress', 'По прогрессу']];
+  const saveSortChoice = (mode) => writeJson(SORT_PREFERENCE, { mode, schema: 1 });
+  const readSortChoice = async () => {
+    const pref = await readJson(SORT_PREFERENCE);
+    return SORT_MODES.includes(pref?.mode) ? pref.mode : 'default';
+  };
   // These endpoints belong to the same service but NOT the same auth scheme:
   // account KOSync uses an account/device key; the plugin endpoint uses the cp_
   // token or, since 1.6.10, the narrow kosync_ key written by the plugin itself.
@@ -480,6 +493,9 @@ CrossPoint.registerPlugin(async (container, api) => {
   // Выбор сервера перечитывается с SD-карты при каждом открытии страницы и
   // применяется к зеркальной обёртке до первых сетевых запросов профиля.
   let serverChoice = 'auto';
+  // Сортировка перечитывается с SD вместе с выбором сервера: панель сверяет с
+  // ней адреса device.json, а не полагается на то, что осталось с прошлого раза.
+  let sortChoice = 'default';
   // Второе нажатие «Выгрузить статистику» перезаписывает уже лежащий файл.
   let statsArmed = false;
   // Автопроверка релиза делается один раз за открытие страницы.
@@ -1013,6 +1029,15 @@ CrossPoint.registerPlugin(async (container, api) => {
     }
     return device;
   }
+  // All settings controls read-modify-write the same device.json. Serialize
+  // those operations and always read the latest file inside the queue, so a
+  // late server/sleep/sort write cannot restore stale URLs or handlers.
+  let deviceWriteQueue = Promise.resolve();
+  function queueDeviceWrite(task) {
+    const run = deviceWriteQueue.then(task, task);
+    deviceWriteQueue = run.catch(() => {});
+    return run;
+  }
   // ── Зеркало сервера в device.json ───────────────────────────────────────
   // Прошивка читает каталог, поиск, книги, QR-вход, события и адрес экрана
   // сна прямо из статического device.json. Выбор «Сервер» должен двигать и
@@ -1057,11 +1082,72 @@ CrossPoint.registerPlugin(async (container, api) => {
   }
   // Writes only when an address actually moves: no flash wear on page open.
   async function rewriteDeviceHostsOnDisk(target) {
-    const device = await readSleepDevice();
-    if (!rewriteDeviceHosts(device, target)) return false;
-    await api.writeFile(SLEEP_DEVICE, sleepBytes(new TextEncoder().encode(
-      JSON.stringify(device, null, 2) + '\n')));
-    return true;
+    return queueDeviceWrite(async () => {
+      const device = await readSleepDevice();
+      if (!rewriteDeviceHosts(device, target)) return false;
+      await api.writeFile(SLEEP_DEVICE, sleepBytes(new TextEncoder().encode(
+        JSON.stringify(device, null, 2) + '\n')));
+      return true;
+    });
+  }
+  // ── Сортировка в адресах device.json ────────────────────────────────────
+  // Стоковая прошивка читает порядок из адреса каждой полки в device.json.
+  const CATALOG_PATHS = ['/api/v1/crosspoint/catalog', '/api/v1/crosspoint/catalog/all',
+    '/api/v1/crosspoint/wb/catalog', '/api/v1/crosspoint/litres/catalog'];
+  // Правим текст шаблона, а не url.search: {page}, {limit} и {query} обязаны
+  // остаться буквально, иначе прошивка не подставит в них значения.
+  function withSortParam(template, mode) {
+    const mark = template.indexOf('?');
+    if (mark === -1) return template;
+    const pairs = template.slice(mark + 1).split('&')
+      .filter((pair) => pair && pair !== 'sort' && !pair.startsWith('sort='));
+    if (mode) pairs.push('sort=' + (mode === 'default' ? 'opds' : mode));
+    return template.slice(0, mark) + (pairs.length ? '?' + pairs.join('&') : '');
+  }
+  const isYbxCatalogUrl = (template) => {
+    let parsed;
+    try { parsed = new URL(template); } catch { return false; }
+    if (parsed.protocol !== 'https:') return false;
+    return DEVICE_HOST_PAIRS.some((hosts) => hosts.includes(parsed.hostname))
+      && CATALOG_PATHS.includes(parsed.pathname);
+  };
+  function rewriteDeviceSort(device, mode) {
+    if (!SORT_MODES.includes(mode) || !device || typeof device !== 'object') return false;
+    const browse = device.browse;
+    if (!browse || typeof browse !== 'object') return false;
+    let changed = false;
+    // Поиск остаётся без sort даже когда полки отсортированы: порядок
+    // релевантности важнее желания читателя, и сервер его не отдаёт.
+    const apply = (template, wanted) => {
+      if (typeof template !== 'string' || !isYbxCatalogUrl(template)) return template;
+      const next = withSortParam(template, wanted);
+      if (next !== template) changed = true;
+      return next;
+    };
+    browse.url = apply(browse.url, mode);
+    if (browse.search && typeof browse.search === 'object') {
+      browse.search.url = apply(browse.search.url, null);
+    }
+    if (Array.isArray(browse.lists)) {
+      for (const entry of browse.lists) {
+        if (!entry || typeof entry !== 'object') continue;
+        const fixed = typeof entry.id === 'string' && entry.id.startsWith('all-by-')
+          ? entry.id.slice(7) : null;
+        const order = fixed && SORT_MODES.includes(fixed) ? fixed : mode;
+        entry.url = apply(entry.url, order);
+      }
+    }
+    return changed;
+  }
+  // Тот же принцип, что у зеркал: пишем SD только когда адрес реально меняется.
+  async function rewriteDeviceSortOnDisk(mode) {
+    return queueDeviceWrite(async () => {
+      const device = await readSleepDevice();
+      if (!rewriteDeviceSort(device, mode)) return false;
+      await api.writeFile(SLEEP_DEVICE, sleepBytes(new TextEncoder().encode(
+        JSON.stringify(device, null, 2) + '\n')));
+      return true;
+    });
   }
   const sleepHandlerOn = (device) => Boolean(device?.events?.['sleep.enter']?.download);
   async function saveSleepPreference(enabled) {
@@ -1072,21 +1158,24 @@ CrossPoint.registerPlugin(async (container, api) => {
     const pref = await readJson(SLEEP_PREFERENCE);
     return typeof pref?.enabled === 'boolean' ? pref.enabled : null;
   }
-  async function writeSleepHandler(device, enabled) {
-    const v = handlerVersion(device);
-    // Off means no sleep.enter handler at all: no network work before sleep.
-    if (enabled) device.events['sleep.enter'] = { download: sleepDownloadHandler(v) };
-    else delete device.events['sleep.enter'];
-    // The new handler carries the main host; move it to the chosen server in
-    // the same write, so a reader that sleeps before the page is reopened
-    // does not go to a host the user cannot reach.
-    rewriteDeviceHosts(device, mirrorRequest.effectiveTarget());
-    await api.writeFile(SLEEP_DEVICE, sleepBytes(new TextEncoder().encode(
-      JSON.stringify(device, null, 2) + '\n')));
+  async function writeSleepHandler(enabled) {
+    return queueDeviceWrite(async () => {
+      const device = await readSleepDevice();
+      const v = handlerVersion(device);
+      // Off means no sleep.enter handler at all: no network work before sleep.
+      if (enabled) device.events['sleep.enter'] = { download: sleepDownloadHandler(v) };
+      else delete device.events['sleep.enter'];
+      // The new handler carries the main host; move it to the chosen server in
+      // the same write, so a reader that sleeps before the page is reopened
+      // does not go to a host the user cannot reach.
+      rewriteDeviceHosts(device, mirrorRequest.effectiveTarget());
+      await api.writeFile(SLEEP_DEVICE, sleepBytes(new TextEncoder().encode(
+        JSON.stringify(device, null, 2) + '\n')));
+    });
   }
   // Включение: сначала сохраняем чужую картинку, потом просим сервер рисовать,
   // и только затем отдаём прошивке скачивать карточку в слот.
-  async function installSleepCard(device) {
+  async function installSleepCard() {
     const slot = await readSleepFile(SLEEP_SLOT);
     if (slot && !ownsSleepSlot(slot)) {
       if (slot.length > SLEEP_BACKUP_LIMIT) {
@@ -1094,13 +1183,13 @@ CrossPoint.registerPlugin(async (container, api) => {
       }
       await api.writeFile(SLEEP_BACKUP, sleepBytes(slot));
     }
-    await writeSleepHandler(device, true);
+    await writeSleepHandler(true);
   }
 
   // Выключение: снимаем обработчик, затем возвращаем слот. Трогаем слот только
   // если в нём по-прежнему наша карточка: пользователь мог положить туда своё.
-  async function removeSleepCard(device) {
-    await writeSleepHandler(device, false);
+  async function removeSleepCard() {
+    await writeSleepHandler(false);
     const slot = await readSleepFile(SLEEP_SLOT);
     if (!slot || !ownsSleepSlot(slot)) return 'kept';
     const backup = await readSleepFile(SLEEP_BACKUP);
@@ -1149,14 +1238,13 @@ CrossPoint.registerPlugin(async (container, api) => {
   }
 
   async function setSleepCard(enabled, sleepMode) {
-    const device = await readSleepDevice();
     if (enabled) {
-      await installSleepCard(device);
+      await installSleepCard();
       if (sleepMode !== CARD_MODE) await writeSettings({ sleepScreen: CARD_MODE });
       await saveSleepPreference(true);
       return 'on';
     }
-    const outcome = await removeSleepCard(device);
+    const outcome = await removeSleepCard();
     // Прежний режим трогаем только если он показывал карточку: «Тёмный»,
     // «Светлый» и выбор пользователя оставляем как есть.
     if (sleepMode === CARD_MODE || sleepMode === COVER_CUSTOM_MODE) {
@@ -1184,11 +1272,11 @@ CrossPoint.registerPlugin(async (container, api) => {
     const slot = await readSleepFile(SLEEP_SLOT);
     if (sleepMode === CARD_MODE &&
         (pref === true || (pref === null && slot && ownsSleepSlot(slot)))) {
-      await installSleepCard(device);
+      await installSleepCard();
       await saveSleepPreference(true);
       return true;
     }
-    if (slot && ownsSleepSlot(slot)) await removeSleepCard(device);
+    if (slot && ownsSleepSlot(slot)) await removeSleepCard();
     if (pref === true) await saveSleepPreference(false);
     return false;
   }
@@ -2103,7 +2191,7 @@ CrossPoint.registerPlugin(async (container, api) => {
 
     actions.append(sleepButton, sleepCardButton, legacyButton, statsButton, checkButton, updateButton, signOutButton);
     settings.appendChild(rows);
-    settings.append(buildServerSection(), kosyncGroup, metadataGroup, clippingGroup);
+    settings.append(buildServerSection(), buildSortSection(), kosyncGroup, metadataGroup, clippingGroup);
     settings.appendChild(statsHint);
     settings.appendChild(updateBanner);
     settings.appendChild(actions);
@@ -2183,6 +2271,63 @@ CrossPoint.registerPlugin(async (container, api) => {
     return group;
   }
 
+  // ── Сортировка книг в каталоге ──────────────────────────────────────────
+  function buildSortSection() {
+    const group = document.createElement('div');
+    group.className = 'ybx-setting-group';
+    const title = document.createElement('h3');
+    title.textContent = 'Сортировка книг в каталоге';
+    const hint = document.createElement('p');
+    hint.className = 'ybx-hint';
+    hint.textContent = 'Выберите порядок книг и заново откройте каталог YBX на ридере.';
+    const actions = document.createElement('div');
+    actions.className = 'ybx-actions';
+    const buttons = [];
+    const paintChoice = () => {
+      buttons.forEach((button) => {
+        const active = sortChoice === button.dataset.sortMode;
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+        button.classList.toggle('primary', active);
+      });
+    };
+    for (const [mode, label] of SORT_CHOICE_LABELS) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      button.dataset.sortMode = mode;
+      button.setAttribute('aria-label', 'Сортировка: ' + label);
+      button.onclick = async () => {
+        if (sortChoice === mode) return;
+        // Two concurrent choices would race the preference and device writes.
+        for (const other of buttons) other.disabled = true;
+        try {
+          await saveSortChoice(mode);
+          sortChoice = mode;
+          paintChoice();
+          let note = '';
+          try {
+            note = await rewriteDeviceSortOnDisk(mode)
+              ? ' Переоткройте Home → Plugins → YBX на ридере, чтобы прошивка подхватила новые адреса.'
+              : '';
+          } catch (deviceError) {
+            note = ' Не удалось обновить device.json: ' + deviceError.message
+              + '; сортировка применится при следующем открытии страницы.';
+          }
+          message('Сортировка: ' + label + '.' + note, 'ok');
+        } catch (error) {
+          message('Не удалось сохранить сортировку: ' + error.message, 'err');
+        } finally {
+          for (const other of buttons) other.disabled = false;
+        }
+      };
+      buttons.push(button);
+      actions.appendChild(button);
+    }
+    paintChoice();
+    group.append(title, hint, actions);
+    return group;
+  }
+
   function renderSignedOut() {
     // Состояние «ещё раз, чтобы перезаписать» живёт до отвязки или перезагрузки.
     statsArmed = false;
@@ -2205,9 +2350,16 @@ CrossPoint.registerPlugin(async (container, api) => {
   async function refresh() {
     serverChoice = await readServerChoice();
     mirrorRequest.choice(serverChoice);
+    sortChoice = await readSortChoice();
     await ensureDeviceConfig();
     try {
       await rewriteDeviceHostsOnDisk(mirrorRequest.effectiveTarget());
+    } catch (error) { /* device.json may be unavailable; do not block page */ }
+    // A plugin update or Plugin Hub returns device.json without sort. Retry
+    // the reconciliation here, before the auth/profile gates, so a failure on
+    // the previous page does not depend on a successful summary request.
+    try {
+      await rewriteDeviceSortOnDisk(sortChoice);
     } catch (error) { /* device.json may be unavailable; do not block page */ }
     token = await readPluginToken();
     if (!token || !token.access_token) {

@@ -648,8 +648,18 @@ test('the written device.json puts the sleep handler on the chosen server', asyn
     const world = await slotWorld({ target });
     await world.ctx.setSleepCard(true, 3);
     const written = JSON.parse(Buffer.from(world.files.get(devicePath)).toString());
-    assert.match(written.events['sleep.enter'].download.url,
+    const download = written.events['sleep.enter'].download;
+    assert.match(download.url,
       new RegExp(`^https://${host}\\.ybx\\.app/api/v1/crosspoint/sleep-image\\?`), target);
+    const url = new URL(download.url);
+    assert.equal(url.searchParams.get('v'), '1.7.0', target);
+    assert.equal(url.searchParams.get('w'), '{cfg.sleep_width}', target);
+    assert.equal(url.searchParams.get('h'), '{cfg.sleep_height}', target);
+    assert.equal(url.searchParams.get('book_id'), '{meta.book_id}', target);
+    assert.equal(url.searchParams.get('percent'), '{event.end_percent}', target);
+    assert.deepEqual(download.headers, { Authorization: 'Bearer {token}' }, target);
+    assert.equal(download.dest, '/sleep.bmp', target);
+    assert.equal(download.request, undefined, target);
   }
 });
 

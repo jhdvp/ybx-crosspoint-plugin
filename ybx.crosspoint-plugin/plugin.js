@@ -976,8 +976,10 @@ CrossPoint.registerPlugin(async (container, api) => {
       return { 'emy.ybx.app': 'eu', 'pmy.ybx.app': 'pt' }[new URL(String(value || '')).hostname] || 'main';
     } catch { return 'main'; }
   };
+  // The server updates reading progress before drawing the card, so the
+  // download carries the book id and the visible page's bottom percent.
   const sleepDownloadHandler = (v) => ({
-    url: API + '/api/v1/crosspoint/sleep-image?w={cfg.sleep_width}&h={cfg.sleep_height}&v=' + v,
+    url: API + '/api/v1/crosspoint/sleep-image?w={cfg.sleep_width}&h={cfg.sleep_height}&v=' + v + '&book_id={meta.book_id}&percent={event.end_percent}',
     headers: { Authorization: 'Bearer {token}' },
     dest: SLEEP_SLOT,
   });

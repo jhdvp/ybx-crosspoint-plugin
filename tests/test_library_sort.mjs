@@ -53,7 +53,7 @@ test('title and added reach the root browse and every shelf of the shipped catal
     for (const url of shelves(device)) {
       assert.match(url, new RegExp('&sort=' + mode + '$'), url);
       assert.ok(url.includes('page={page}') && url.includes('limit={limit}'), url);
-      assert.ok(url.includes('page_size=10') && url.includes('v=1.6.18'), url);
+      assert.ok(url.includes('page_size=10') && url.includes('v=1.6.19'), url);
     }
     // The two shelves that ship with a fixed order keep advertising it.
     assert.match(device.browse.lists[8].url, /&sort=title$/);

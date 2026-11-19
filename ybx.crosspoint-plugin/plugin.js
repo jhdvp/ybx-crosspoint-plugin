@@ -2263,10 +2263,6 @@ CrossPoint.registerPlugin(async (container, api) => {
   }
 
   // ── Сортировка книг в каталоге ──────────────────────────────────────────
-  // Порядок выбирается здесь, а действует в device.json: прошивка подставляет
-  // в адрес только {page}, {limit} и {query}, поэтому sort=title и sort=added
-  // дописываются прямо в шаблоны полки. «По умолчанию» возвращает адреса без
-  // sort — те же запросы, что делал плагин 1.6.18.
   function buildSortSection() {
     const group = document.createElement('div');
     group.className = 'ybx-setting-group';

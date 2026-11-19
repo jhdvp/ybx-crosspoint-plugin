@@ -6,7 +6,7 @@
 | | **YBX Stock** | **YBX Native** |
 | --- | --- | --- |
 | Исходник | `jhdvp/ybx-crosspoint-plugin` → `main/ybx.crosspoint-plugin/` | `jhdvp/ybx-crosspoint` → `sd-card/plugins/ybx/` |
-| Версия | **1.6.18** — стабильная | **1.9.1** — проверяемый кандидат PR #14 |
+| Версия | **1.6.19** — стабильная | **1.9.1** — проверяемый кандидат PR #14 |
 | Прошивка | Официальный CrossPoint | Только кастомная YBX Reader |
 | Каталоги | Статические `browse.lists`, совместимые со штатным API | Подключённые провайдеры, «Все», «Все книги», вложенные серии и полки |
 | Дополнительные capabilities | Без `catalog.lists.auth`, `catalog.folders.json`, `stats.native.v1` и `ui.dashboard.v1` | Требует **оба**: `catalog.lists.auth` и `catalog.folders.json` |
@@ -27,6 +27,8 @@
 
 ## Выпуск Stock
 
+**1.6.19** добавляет порядок полок OPDS и выбор сортировки по названию, добавлению, автору и прогрессу.
+
 **1.6.18** — только официальный CrossPoint: исправление пагинации
 (`page_size=10` в каталожных URL; `limit=10` на 2.0.0, `limit=11` в старых сборках
 с lookahead). В ней нет Native capabilities, и она не предназначена для кастомной
@@ -37,7 +39,7 @@ python3 tools/validate_payload.py --help
 python3 tools/validate_payload.py --canonical <путь к каноническому плагину>
 python3 -m unittest discover -s tests -v
 node --test tests/*.mjs
-python3 tools/build_release_zip.py --output /tmp/YBX-1.6.18.zip
+python3 tools/build_release_zip.py --output /tmp/YBX-1.6.19.zip
 ```
 
 Для Native — отдельные CI, сборки X3/X4 и X4 Pro, QEMU и физическая приёмка.

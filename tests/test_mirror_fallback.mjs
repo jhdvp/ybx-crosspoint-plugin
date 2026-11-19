@@ -228,7 +228,7 @@ test('the page offers «Сервер»: Авто / Основной / Европ
   // The control lives with the other setting groups and remains available
   // signed out, because a blocked origin breaks the first steps of pairing.
   assert.match(source,
-    /settings\.append\(buildServerSection\(\), kosyncGroup, metadataGroup, clippingGroup\)/);
+    /settings\.append\(buildServerSection\(\), buildSortSection\(\), kosyncGroup, metadataGroup, clippingGroup\)/);
   assert.match(source, /settingsWrap\.appendChild\(buildServerSection\(\)\)/);
   // The saved choice is applied to the mirror wrapper before any other request.
   assert.match(source,

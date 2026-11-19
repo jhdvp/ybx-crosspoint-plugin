@@ -359,6 +359,19 @@ CrossPoint.registerPlugin(async (container, api) => {
     const pref = await readJson(SERVER_PREFERENCE);
     return SERVER_MODES.includes(pref?.mode) ? pref.mode : 'auto';
   };
+  // Сортировка каталога — намерение читателя, которое переживает обновление
+  // плагина: Hub перезаписывает device.json, а отдельные файлы предпочтений
+  // остаются. Прошивка подставляет в адреса только {page}, {limit} и {query},
+  // поэтому намерение переносится в device.json как параметр sort.
+  const SORT_PREFERENCE = DIR + '/sort-preference.json';
+  const SORT_MODES = ['default', 'title', 'added'];
+  const SORT_CHOICE_LABELS = [['default', 'По умолчанию'], ['title', 'По названию'],
+    ['added', 'По дате добавления']];
+  const saveSortChoice = (mode) => writeJson(SORT_PREFERENCE, { mode, schema: 1 });
+  const readSortChoice = async () => {
+    const pref = await readJson(SORT_PREFERENCE);
+    return SORT_MODES.includes(pref?.mode) ? pref.mode : 'default';
+  };
   // These endpoints belong to the same service but NOT the same auth scheme:
   // account KOSync uses an account/device key; the plugin endpoint uses the cp_
   // token or, since 1.6.10, the narrow kosync_ key written by the plugin itself.
@@ -480,6 +493,9 @@ CrossPoint.registerPlugin(async (container, api) => {
   // Выбор сервера перечитывается с SD-карты при каждом открытии страницы и
   // применяется к зеркальной обёртке до первых сетевых запросов профиля.
   let serverChoice = 'auto';
+  // Сортировка перечитывается с SD вместе с выбором сервера: панель сверяет с
+  // ней адреса device.json, а не полагается на то, что осталось с прошлого раза.
+  let sortChoice = 'default';
   // Второе нажатие «Выгрузить статистику» перезаписывает уже лежащий файл.
   let statsArmed = false;
   // Автопроверка релиза делается один раз за открытие страницы.
@@ -1063,6 +1079,67 @@ CrossPoint.registerPlugin(async (container, api) => {
       JSON.stringify(device, null, 2) + '\n')));
     return true;
   }
+  // ── Сортировка в адресах device.json ────────────────────────────────────
+  // Стоковая прошивка не рисует меню сортировки и не знает плейсхолдера
+  // {sort}: на каждый запрос каталога она читает только сами адреса из
+  // device.json. Значит выбор живёт там: «По названию» и «По дате добавления»
+  // становятся sort=title и sort=added, а «По умолчанию» — адрес без sort,
+  // ровно такой, как у плагина 1.6.18. Сервер применяет sort до деления на
+  // страницы; релевантность поиска и порядок серий он держит сам.
+  const CATALOG_PATHS = ['/api/v1/crosspoint/catalog', '/api/v1/crosspoint/catalog/all',
+    '/api/v1/crosspoint/wb/catalog', '/api/v1/crosspoint/litres/catalog'];
+  // Правим текст шаблона, а не url.search: {page}, {limit} и {query} обязаны
+  // остаться буквально, иначе прошивка не подставит в них значения.
+  function withSortParam(template, mode) {
+    const mark = template.indexOf('?');
+    if (mark === -1) return template;
+    const pairs = template.slice(mark + 1).split('&')
+      .filter((pair) => pair && pair !== 'sort' && !pair.startsWith('sort='));
+    if (mode !== 'default') pairs.push('sort=' + mode);
+    return template.slice(0, mark) + (pairs.length ? '?' + pairs.join('&') : '');
+  }
+  const isYbxCatalogUrl = (template) => {
+    let parsed;
+    try { parsed = new URL(template); } catch { return false; }
+    if (parsed.protocol !== 'https:') return false;
+    return DEVICE_HOST_PAIRS.some((hosts) => hosts.includes(parsed.hostname))
+      && CATALOG_PATHS.includes(parsed.pathname);
+  };
+  function rewriteDeviceSort(device, mode) {
+    if (!SORT_MODES.includes(mode) || !device || typeof device !== 'object') return false;
+    const browse = device.browse;
+    if (!browse || typeof browse !== 'object') return false;
+    let changed = false;
+    // Поиск остаётся без sort даже когда полки отсортированы: порядок
+    // релевантности важнее желания читателя, и сервер его не отдаёт.
+    const apply = (template, wanted) => {
+      if (typeof template !== 'string' || !isYbxCatalogUrl(template)) return template;
+      const next = withSortParam(template, wanted);
+      if (next !== template) changed = true;
+      return next;
+    };
+    browse.url = apply(browse.url, mode);
+    if (browse.search && typeof browse.search === 'object') {
+      browse.search.url = apply(browse.search.url, 'default');
+    }
+    if (Array.isArray(browse.lists)) {
+      for (const entry of browse.lists) {
+        if (!entry || typeof entry !== 'object') continue;
+        const order = entry.id === 'all-by-title' ? 'title'
+          : entry.id === 'all-by-added' ? 'added' : mode;
+        entry.url = apply(entry.url, order);
+      }
+    }
+    return changed;
+  }
+  // Тот же принцип, что у зеркал: пишем SD только когда адрес реально меняется.
+  async function rewriteDeviceSortOnDisk(mode) {
+    const device = await readSleepDevice();
+    if (!rewriteDeviceSort(device, mode)) return false;
+    await api.writeFile(SLEEP_DEVICE, sleepBytes(new TextEncoder().encode(
+      JSON.stringify(device, null, 2) + '\n')));
+    return true;
+  }
   const sleepHandlerOn = (device) => Boolean(device?.events?.['sleep.enter']?.download);
   async function saveSleepPreference(enabled) {
     await api.writeFile(SLEEP_PREFERENCE, sleepBytes(new TextEncoder().encode(
@@ -1207,6 +1284,12 @@ CrossPoint.registerPlugin(async (container, api) => {
 
   async function loadProfile() {
     const versionText = await version();
+    // Обновление плагина или Plugin Hub возвращают device.json без sort:
+    // страница сверяет адреса с выбором читателя и пишет только при
+    // расхождении, чтобы не стирать карту flash при каждом открытии.
+    try {
+      await rewriteDeviceSortOnDisk(sortChoice);
+    } catch (error) { /* device.json may be unavailable; do not block page */ }
     settingsWrap.replaceChildren();
     const settings = section('Настройки', versionText ? 'v' + versionText : '');
     const rows = document.createElement('div');
@@ -2103,7 +2186,7 @@ CrossPoint.registerPlugin(async (container, api) => {
 
     actions.append(sleepButton, sleepCardButton, legacyButton, statsButton, checkButton, updateButton, signOutButton);
     settings.appendChild(rows);
-    settings.append(buildServerSection(), kosyncGroup, metadataGroup, clippingGroup);
+    settings.append(buildServerSection(), buildSortSection(), kosyncGroup, metadataGroup, clippingGroup);
     settings.appendChild(statsHint);
     settings.appendChild(updateBanner);
     settings.appendChild(actions);
@@ -2183,6 +2266,71 @@ CrossPoint.registerPlugin(async (container, api) => {
     return group;
   }
 
+  // ── Сортировка книг в каталоге ──────────────────────────────────────────
+  // Порядок выбирается здесь, а действует в device.json: прошивка подставляет
+  // в адрес только {page}, {limit} и {query}, поэтому sort=title и sort=added
+  // дописываются прямо в шаблоны полки. «По умолчанию» возвращает адреса без
+  // sort — те же запросы, что делал плагин 1.6.18.
+  function buildSortSection() {
+    const group = document.createElement('div');
+    group.className = 'ybx-setting-group';
+    const title = document.createElement('h3');
+    title.textContent = 'Сортировка книг в каталоге';
+    const hint = document.createElement('p');
+    hint.className = 'ybx-hint';
+    hint.textContent = 'По названию и По дате добавления сервер получает как sort=title и '
+      + 'sort=added и упорядочивает полку до деления на страницы; дата добавления — '
+      + 'тот же порядок, что в OPDS (сначала добавленные позже). По умолчанию — прежний '
+      + 'порядок «недавно открытые», параметр sort не отправляется вовсе. Поиск и '
+      + 'последовательность серий сортировке не поддаются. Выбор лежит на SD-карте и '
+      + 'переживает обновление плагина; после смены переоткройте Home → Plugins → YBX.';
+    const actions = document.createElement('div');
+    actions.className = 'ybx-actions';
+    const buttons = [];
+    const paintChoice = () => {
+      buttons.forEach((button) => {
+        const active = sortChoice === button.dataset.sortMode;
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+        button.classList.toggle('primary', active);
+      });
+    };
+    for (const [mode, label] of SORT_CHOICE_LABELS) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      button.dataset.sortMode = mode;
+      button.setAttribute('aria-label', 'Сортировка: ' + label);
+      button.onclick = async () => {
+        if (sortChoice === mode) return;
+        button.disabled = true;
+        try {
+          await saveSortChoice(mode);
+          sortChoice = mode;
+          paintChoice();
+          let note = '';
+          try {
+            note = await rewriteDeviceSortOnDisk(mode)
+              ? ' Переоткройте Home → Plugins → YBX на ридере, чтобы прошивка подхватила новые адреса.'
+              : '';
+          } catch (deviceError) {
+            note = ' Не удалось обновить device.json: ' + deviceError.message
+              + '; сортировка применится при следующем открытии страницы.';
+          }
+          message('Сортировка: ' + label + '.' + note, 'ok');
+        } catch (error) {
+          message('Не удалось сохранить сортировку: ' + error.message, 'err');
+        } finally {
+          button.disabled = false;
+        }
+      };
+      buttons.push(button);
+      actions.appendChild(button);
+    }
+    paintChoice();
+    group.append(title, hint, actions);
+    return group;
+  }
+
   function renderSignedOut() {
     // Состояние «ещё раз, чтобы перезаписать» живёт до отвязки или перезагрузки.
     statsArmed = false;
@@ -2205,6 +2353,7 @@ CrossPoint.registerPlugin(async (container, api) => {
   async function refresh() {
     serverChoice = await readServerChoice();
     mirrorRequest.choice(serverChoice);
+    sortChoice = await readSortChoice();
     await ensureDeviceConfig();
     try {
       await rewriteDeviceHostsOnDisk(mirrorRequest.effectiveTarget());

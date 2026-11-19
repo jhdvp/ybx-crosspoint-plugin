@@ -57,6 +57,16 @@
       {
         "title": "ЛитРес",
         "url": "https://my.ybx.app/api/v1/crosspoint/litres/catalog?page={page}&limit={limit}&stock=1&page_size=10&v=1.6.18"
+      },
+      {
+        "id": "all-by-title",
+        "title": "Все книги · по названию",
+        "url": "https://my.ybx.app/api/v1/crosspoint/catalog/all?kind=all&page={page}&limit={limit}&page_size=10&v=1.6.18&sort=title"
+      },
+      {
+        "id": "all-by-added",
+        "title": "Все книги · по добавлению",
+        "url": "https://my.ybx.app/api/v1/crosspoint/catalog/all?kind=all&page={page}&limit={limit}&page_size=10&v=1.6.18&sort=added"
       }
     ]
   },

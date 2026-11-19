@@ -23,22 +23,24 @@ class PayloadContractTests(unittest.TestCase):
         self.assertNotIn("folder_url", browse["fields"])
         self.assertEqual([v["title"] for v in browse["lists"]], [
             "Все книги", "Читаю", "Хочу прочитать", "Прочитано",
-            "Загруженные", "Яндекс Книги", "WB Книги", "ЛитРес"])
+            "Загруженные", "Яндекс Книги", "WB Книги", "ЛитРес",
+            "Все книги · по названию", "Все книги · по добавлению"])
         base = "https://my.ybx.app/api/v1/crosspoint/"
         self.assertEqual([v["url"].split("?")[0] for v in browse["lists"]], [
             base+"catalog/all", base+"catalog/all", base+"catalog/all",
             base+"catalog/all", base+"catalog/all", base+"catalog",
-            base+"wb/catalog", base+"litres/catalog",
+            base+"wb/catalog", base+"litres/catalog", base+"catalog/all", base+"catalog/all",
         ])
         self.assertEqual(
             [v["url"].split("kind=")[1].split("&")[0] for v in browse["lists"][:5]],
             ["all", "reading", "to_read", "done", "uploaded"])
         self.assertIn("/catalog/all?kind=all&q={query}&", browse["search"]["url"])
-        self.assertIn("&stock=1", browse["lists"][-1]["url"])
-        self.assertIn("&stock=1", browse["lists"][-2]["url"])
+        self.assertIn("&stock=1", browse["lists"][7]["url"])
+        self.assertIn("&stock=1", browse["lists"][6]["url"])
         for entry in browse["lists"]:
             self.assertNotIn("parent", entry)
-            self.assertNotIn("id", entry)
+            if "id" in entry:
+                self.assertIn(entry["id"], ("all-by-title", "all-by-added"))
             self.assertIn("v=1.6.18", entry["url"])
         self.assertEqual(payload["token"]["file"], "token.json")
         self.assertEqual(payload["download"]["dest_dir"], "/books/ybx")
@@ -54,7 +56,7 @@ class PayloadContractTests(unittest.TestCase):
         self.assertEqual(browse["page_size"], 10)
         catalog_urls = [browse["url"], browse["search"]["url"]]
         catalog_urls += [entry["url"] for entry in browse["lists"]]
-        self.assertEqual(len(catalog_urls), 10)
+        self.assertEqual(len(catalog_urls), 12)
         for url in catalog_urls:
             with self.subTest(url=url):
                 self.assertIn("page_size=10", url)

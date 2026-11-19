@@ -8,7 +8,7 @@ const stock = read('device.json');
 const browse = stock.browse;
 const expected = [
   'Все книги', 'Читаю', 'Хочу прочитать', 'Прочитано', 'Загруженные',
-  'Яндекс Книги', 'WB Книги', 'ЛитРес',
+  'Яндекс Книги', 'WB Книги', 'ЛитРес', 'Все книги · по названию', 'Все книги · по добавлению',
 ];
 
 function requestUrl(template, page = 1) {
@@ -17,7 +17,7 @@ function requestUrl(template, page = 1) {
     .replaceAll('{query}', encodeURIComponent('test')));
 }
 
-test('Stock 1.6.18 exposes all eight exact top-level shelves without Native lists_url', () => {
+test('Stock 1.6.18 exposes shelves and both direct sort choices without Native lists_url', () => {
   assert.equal(manifest.version, '1.6.18');
   assert.equal(manifest.mount, 'settings');
   assert.deepEqual(manifest.compatibility.firmware_family, ['crosspoint']);
@@ -27,7 +27,8 @@ test('Stock 1.6.18 exposes all eight exact top-level shelves without Native list
   assert.equal(browse.items, 'items');
   assert.equal(browse.lists_url, undefined);
   assert.deepEqual(browse.lists.map(({ title }) => title), expected);
-  assert.equal(browse.lists.length, 8);
+  assert.equal(requestUrl(browse.lists[8].url).searchParams.get('sort'), 'title');
+  assert.equal(requestUrl(browse.lists[9].url).searchParams.get('sort'), 'added');
   assert.equal(browse.page_size, 10);
 });
 

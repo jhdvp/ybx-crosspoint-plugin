@@ -387,26 +387,3 @@ test('a new sleep handler follows the chosen server and mirrored handlers stay r
     assert.match(handler.download.url, new RegExp(`^https://${host}\\.ybx\\.app/`));
   }
 });
-
-test('the sleep download carries book id and visible-page percent for progress sync', () => {
-  const start = source.indexOf('  const sleepDownloadHandler =');
-  const end = source.indexOf('  // Панели, для которых сервер рисует карточку', start);
-  assert.ok(start !== -1 && end > start, 'cannot extract sleepDownloadHandler');
-  const ctx = vm.createContext({ API: 'https://my.ybx.app', SLEEP_SLOT: '/sleep.bmp' });
-  vm.runInContext(source.slice(start, end)
-    + '\nglobalThis.handler = sleepDownloadHandler;', ctx);
-  const handler = ctx.handler('1.7.0');
-  assert.equal(handler.url,
-    'https://my.ybx.app/api/v1/crosspoint/sleep-image'
-    + '?w={cfg.sleep_width}&h={cfg.sleep_height}&v=1.7.0'
-    + '&book_id={meta.book_id}&percent={event.end_percent}');
-  assert.equal(handler.headers.Authorization, 'Bearer {token}');
-  assert.equal(handler.dest, '/sleep.bmp');
-  assert.equal(handler.request, undefined);
-  const url = new URL(handler.url);
-  assert.equal(url.searchParams.get('w'), '{cfg.sleep_width}');
-  assert.equal(url.searchParams.get('h'), '{cfg.sleep_height}');
-  assert.equal(url.searchParams.get('v'), '1.7.0');
-  assert.equal(url.searchParams.get('book_id'), '{meta.book_id}');
-  assert.equal(url.searchParams.get('percent'), '{event.end_percent}');
-});

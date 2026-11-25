@@ -53,7 +53,8 @@ test('authorization failure propagates as 401, never falls back to device',async
 });
 test('CORS/network rejection is actionable and never leaks bearer to device',async()=>{
  const h=browser({error:new TypeError('Failed to fetch')});
- await assert.rejects(h.run(),e=>e.network===true && /интернет/i.test(e.message));
+ await assert.rejects(h.run(),e=>e.network===true && /интернет/i.test(e.message)
+  && /Чехия/.test(e.message) && /Португалия/.test(e.message));
  assert.equal(h.calls.length,3);
  assert.ok(h.calls[1].url.startsWith('https://emy.ybx.app/'));
  assert.ok(h.calls[2].url.startsWith('https://pmy.ybx.app/'));

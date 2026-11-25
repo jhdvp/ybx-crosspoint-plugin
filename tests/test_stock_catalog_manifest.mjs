@@ -17,8 +17,8 @@ function requestUrl(template, page = 1) {
     .replaceAll('{query}', encodeURIComponent('test')));
 }
 
-test('Stock 1.7.0 exposes shelves and both direct sort choices without Native lists_url', () => {
-  assert.equal(manifest.version, '1.7.0');
+test('Stock 1.7.1 exposes shelves and both direct sort choices without Native lists_url', () => {
+  assert.equal(manifest.version, '1.7.1');
   assert.equal(manifest.mount, 'settings');
   assert.deepEqual(manifest.compatibility.firmware_family, ['crosspoint']);
   assert.equal(manifest.compatibility.plugin_api_min, 1);
@@ -43,14 +43,14 @@ test('Every Stock section paginates with the firmware lookahead, not Native fold
     assert.equal(second.searchParams.get('page'), '2', list.title);
     // Official CrossPoint PluginCatalogActivity.cpp substitutes pageSize+1.
     // Older lookahead builds send limit=11; CrossPoint 2.0.0 sends limit=10.
-    // 1.7.0 declares page_size=10 so the server steps by ten in both cases.
+    // 1.7.1 declares page_size=10 so the server steps by ten in both cases.
     assert.equal(first.searchParams.get('limit'), '11', list.title);
     assert.equal(second.searchParams.get('limit'), '11', list.title);
     assert.equal(first.searchParams.get('page_size'), '10', list.title);
     assert.equal(second.searchParams.get('page_size'), '10', list.title);
     assert.ok(list.url.includes('page_size=10'), list.title);
     assert.ok(list.url.includes('{limit}'), list.title);
-    assert.equal(first.searchParams.get('v'), '1.7.0', list.title);
+    assert.equal(first.searchParams.get('v'), '1.7.1', list.title);
     assert.equal(list.folder_url, undefined, list.title);
   }
   assert.equal(browse.fields.title, 'title');

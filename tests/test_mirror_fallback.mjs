@@ -161,7 +161,7 @@ test('Основной pins all three pairs to main hosts and never touches the 
   }
 });
 
-test('Европа pins all three pairs to mirror hosts without probing main', async () => {
+test('Чехия pins all three pairs to mirror hosts without probing main', async () => {
   for (const [main, mirror] of [['my', 'emy'], ['opds', 'eopds'], ['sync', 'esync']]) {
     for (const scheme of ['http', 'https']) {
       const h = harness(), calls = [];
@@ -185,7 +185,7 @@ test('Европа pins all three pairs to mirror hosts without probing main', a
   assert.deepEqual(attempts, ['https://esync.ybx.app/api']);
 });
 
-test('the default is Авто, unknown values are ignored and switching clears remembered hosts', async () => {
+test('the default mode stays auto, unknown values are ignored and switching clears remembered hosts', async () => {
   const h = harness(), calls = [];
   const send = async (url) => {
     calls.push(url);
@@ -196,7 +196,7 @@ test('the default is Авто, unknown values are ignored and switching clears r
   assert.equal(h.request.choice('main'), 'main');
   assert.equal(h.request.choice('eu'), 'eu');
   assert.equal(h.request.choice('auto'), 'auto');
-  // Back on Авто the first attempt is the main host again even though Европа
+  // Back on the default mode the first attempt is the main host again even though Чехия
   // would have answered: a mode switch wipes the remembered last-good host.
   const url = 'https://my.ybx.app/api';
   await h.request('browser', url, send);
@@ -218,12 +218,18 @@ test('forced modes still pass through non-YBX, credential-bearing and unparseabl
   }
 });
 
-test('the page offers «Сервер»: Авто / Основной / Европа / Португалия, persisted on the SD card', () => {
+test('the page offers «Сервер»: По умолчанию / Основной / Чехия / Португалия, persisted on the SD card', () => {
   assert.match(source,
     /const SERVER_PREFERENCE = DIR \+ '\/server-preference\.json';/);
   assert.match(source, /const SERVER_MODES = \['auto', 'main', 'eu', 'pt'\];/);
   assert.match(source,
-    /\[\['auto', 'Авто'\], \['main', 'Основной'\], \['eu', 'Европа'\], \['pt', 'Португалия'\]\]/);
+    /\[\['auto', 'По умолчанию'\], \['main', 'Основной'\], \['eu', 'Чехия'\], \['pt', 'Португалия'\]\]/);
+  assert.match(source,
+    /hint\.textContent = 'По умолчанию — основной сервер; при сбое веб-панели пробует Чехию, затем Португалию\. '/);
+  assert.match(source,
+    /Каталог, книги и синхронизация прошивки не переключаются автоматически/);
+  assert.match(source,
+    /message\('Нет связи с YBX\. Проверьте интернет; если основной сервер недоступен, выберите «Чехия» или «Португалия» в разделе «Сервер» и переоткройте плагин\.', 'err'\);/);
   assert.match(source, /title\.textContent = 'Сервер';/);
   // The control lives with the other setting groups and remains available
   // signed out, because a blocked origin breaks the first steps of pairing.

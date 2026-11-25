@@ -22,9 +22,8 @@ CrossPoint.registerPlugin(async (container, api) => {
       'sync.ybx.app': ['esync.ybx.app', 'psync.ybx.app'] };
     const preferences = new Map();
     const retryAfter = 5 * 60 * 1000;
-    // Ручной выбор («Сервер: Авто / Основной / Европа / Португалия») отключает зондирование:
-    // Ручные режимы обращаются ровно к одному серверу и никогда не пробуют
-    // другой — сбой соединения возвращается вызывающему, режим меняет человек.
+    // «По умолчанию» пробует зеркала в веб-панели; ручной выбор обращается
+    // ровно к одному серверу и никогда не пробует другой.
     let mode = 'auto';
     const request = async (transport, address, send) => {
       let url;
@@ -83,8 +82,8 @@ CrossPoint.registerPlugin(async (container, api) => {
     // сеттер для обоих транспортов, режим сознательно не зависит от транспорта.
     request.choice = (next) => {
       if (!['auto', 'main', 'eu', 'pt'].includes(next)) return mode;
-      // Смена режима стирает память о последнем удачном хосте, чтобы Авто
-      // снова начинало с основного сервера.
+      // Смена режима стирает память о последнем удачном хосте, чтобы режим
+      // «По умолчанию» снова начинал с основного сервера.
       mode = next;
       preferences.clear();
       return mode;
@@ -353,7 +352,7 @@ CrossPoint.registerPlugin(async (container, api) => {
   // в отличие от запомненного адреса в ключах transport:host.
   const SERVER_PREFERENCE = DIR + '/server-preference.json';
   const SERVER_MODES = ['auto', 'main', 'eu', 'pt'];
-  const SERVER_CHOICE_LABELS = [['auto', 'Авто'], ['main', 'Основной'], ['eu', 'Европа'], ['pt', 'Португалия']];
+  const SERVER_CHOICE_LABELS = [['auto', 'По умолчанию'], ['main', 'Основной'], ['eu', 'Чехия'], ['pt', 'Португалия']];
   const saveServerChoice = (mode) => writeJson(SERVER_PREFERENCE, { mode, schema: 1 });
   const readServerChoice = async () => {
     const pref = await readJson(SERVER_PREFERENCE);
@@ -591,7 +590,7 @@ CrossPoint.registerPlugin(async (container, api) => {
           credentials: 'omit',
         }));
       } catch (cause) {
-        const error = new Error('не удалось подключиться к YBX, проверьте интернет на телефоне');
+        const error = new Error('Нет связи с YBX. Проверьте интернет; если основной сервер недоступен, выберите «Чехия» или «Португалия» в разделе «Сервер» и переоткройте плагин.');
         error.network = true;
         error.cause = cause;
         throw error;
@@ -2204,7 +2203,7 @@ CrossPoint.registerPlugin(async (container, api) => {
     }
   }
 
-  // ── Сервер: Авто / Основной / Европа / Португалия ─────────────────────────────────────
+  // ── Сервер: По умолчанию / Основной / Чехия / Португалия ────────────────────────
   // Управление доступно и без привязки YBX: менять сервер нужно как раз тогда,
   // когда основной недоступен. Выбор сохраняется в JSON на SD и применяется к
   // зеркальной обёртке немедленно. Адреса каталога, поиска и книг для прошивки
@@ -2216,8 +2215,10 @@ CrossPoint.registerPlugin(async (container, api) => {
     title.textContent = 'Сервер';
     const hint = document.createElement('p');
     hint.className = 'ybx-hint';
-    hint.textContent = 'Авто — основной сервер, затем чешское зеркало, затем португальское при сбоях соединения. '
-      + 'Основной — только основной сервер. Европа — только чешское зеркало (emy/eopds/esync). '
+    hint.textContent = 'По умолчанию — основной сервер; при сбое веб-панели пробует Чехию, затем Португалию. '
+      + 'Каталог, книги и события прошивки не переключаются автоматически: при проблеме связи выберите «Чехия» или «Португалия» и переоткройте плагин. '
+      + 'KOSync остаётся на своём адресе; меняйте его через «Настроить KOSync». '
+      + 'Основной — только основной сервер. Чехия — только чешское зеркало (emy/eopds/esync). '
       + 'Португалия — только португальское зеркало (pmy/popds/psync). '
       + 'Выбор охватывает запросы плагина и переписывает адреса в device.json '
       + '(каталог, поиск, книги, QR, события, экран сна); переоткройте плагин на ридере.';
@@ -2391,7 +2392,8 @@ CrossPoint.registerPlugin(async (container, api) => {
         message('Сессия устарела. Откройте Home → Plugins → YBX на ридере и войдите заново.', 'err');
         renderSignedOut();
       } else if (error.network) {
-        message('Не удалось подключиться к YBX: проверьте интернет на телефоне.', 'err');
+        settingsWrap.replaceChildren(buildServerSection());
+        message('Нет связи с YBX. Проверьте интернет; если основной сервер недоступен, выберите «Чехия» или «Португалия» в разделе «Сервер» и переоткройте плагин.', 'err');
       } else {
         message('Не удалось загрузить статистику: ' + error.message, 'err');
       }

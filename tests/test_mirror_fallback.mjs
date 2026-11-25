@@ -227,7 +227,11 @@ test('the page offers «Сервер»: По умолчанию / Основно
   assert.match(source,
     /hint\.textContent = 'По умолчанию — основной сервер; при сбое веб-панели пробует Чехию, затем Португалию\. '/);
   assert.match(source,
-    /Каталог, книги и синхронизация прошивки не переключаются автоматически/);
+    /Каталог, книги и события прошивки не переключаются автоматически/);
+  assert.match(source, /KOSync остаётся на своём адресе/);
+  assert.match(source, /«Настроить KOSync»/);
+  assert.match(source,
+    /else if \(error\.network\) \{\s*settingsWrap\.replaceChildren\(buildServerSection\(\)\);\s*message\('Нет связи с YBX\./);
   assert.match(source,
     /message\('Нет связи с YBX\. Проверьте интернет; если основной сервер недоступен, выберите «Чехия» или «Португалия» в разделе «Сервер» и переоткройте плагин\.', 'err'\);/);
   assert.match(source, /title\.textContent = 'Сервер';/);
